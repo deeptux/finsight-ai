@@ -1,0 +1,33 @@
+# Environment and secrets
+.env
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local runtime / index data
+chroma_db/
+data/**
+!data/.gitkeep
+_financials/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Local markdown notes (keep README only)
+*.md
+!README.md

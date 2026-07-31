@@ -1,0 +1,8 @@
+[client]
+# Reduce accidental "Clear caches" via the toolbar; the `C` shortcut still exists
+# when focus is NOT in a text input — avoid pressing C outside the chat box.
+toolbarMode = "minimal"
+
+[runner]
+# Faster reruns; avoid lingering "Running…" blur when possible
+fastReruns = true
