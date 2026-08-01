@@ -411,12 +411,12 @@ DARK_CSS = """
         width: min(820px, 92vw) !important;
         max-width: min(820px, 92vw) !important;
     }
-    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"])
+    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]):has(.finsight-answer-body-marker)
         [data-testid="stMarkdownContainer"],
-    div[data-testid="stChatMessage"]:has(img[src*="e67e22"]) [data-testid="stMarkdownContainer"],
-    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"])
-        [data-testid="stVerticalBlockBorderWrapper"],
-    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) .finsight-answer-body {
+    div[data-testid="stChatMessage"]:has(img[src*="e67e22"]):has(.finsight-answer-body-marker)
+        [data-testid="stMarkdownContainer"],
+    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]):has(.finsight-answer-body-marker)
+        [data-testid="stVerticalBlockBorderWrapper"] {
         width: 100% !important;
         max-width: 100% !important;
         box-sizing: border-box !important;
@@ -560,45 +560,89 @@ DARK_CSS = """
         color: #d4e8ff;
         stroke-width: 2.1;
     }
-    div[data-testid="stChatMessage"] .finsight-answer-body p {
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker) p:not(.finsight-cite-bullet) {
         margin: 0 0 0.65rem 0;
     }
-    div[data-testid="stChatMessage"] .finsight-answer-body p:last-child {
-        margin-bottom: 0;
+    /* Hidden answer boundary markers (not flex items) */
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stElementContainer"]:has(> .finsight-answer-body-marker),
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stElementContainer"]:has(> .finsight-answer-body-end) {
+        display: none !important;
     }
-    div[data-testid="stChatMessage"] .finsight-answer-body .finsight-answer-inline {
+    div[data-testid="stChatMessage"] .finsight-answer-body-marker,
+    div[data-testid="stChatMessage"] .finsight-answer-body-end {
+        display: none !important;
+    }
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker) p.finsight-cite-bullet {
+        margin: 0 0 1.5rem 0 !important;
+        padding: 0 !important;
+        line-height: 1.55 !important;
         color: #e8eef7;
-        font-size: inherit;
-        line-height: 1.55;
+        word-break: normal;
+        overflow-wrap: break-word;
     }
-    div[data-testid="stChatMessage"] .finsight-answer-body [data-testid="stHorizontalBlock"] {
+    div[data-testid="stChatMessage"] .finsight-cite-bullet-mark {
+        color: #8fa3bf;
+        font-weight: 600;
+        margin-right: 0.4rem;
+        user-select: none;
+    }
+    /* Citation answers: no flex gap; bullet spacing on p.finsight-cite-bullet */
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stVerticalBlock"]:has(.finsight-cite-bullet-row),
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.finsight-cite-bullet-row)
+        > [data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+        row-gap: 0 !important;
+        column-gap: 0 !important;
+    }
+    /* Streamlit pairs gap:1rem with margin-bottom:-1rem on children; gap:0 must reset both */
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stVerticalBlock"]:has(.finsight-cite-bullet-row)
+        [data-testid="stElementContainer"],
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.finsight-cite-bullet-row)
+        [data-testid="stElementContainer"] {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stElementContainer"]:has(.finsight-cite-bullet-row)
+        [data-testid="stHorizontalBlock"] {
+        align-items: flex-start !important;
         flex-wrap: nowrap !important;
-        align-items: baseline !important;
-        gap: 0.1rem 0.2rem !important;
-        width: fit-content !important;
+        width: 100% !important;
         max-width: 100% !important;
+        gap: 0.35rem !important;
     }
-    div[data-testid="stChatMessage"] .finsight-answer-body [data-testid="stHorizontalBlock"] > div {
-        width: auto !important;
-        flex: 0 1 auto !important;
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stElementContainer"]:has(.finsight-cite-bullet-row)
+        [data-testid="column"]:first-child {
+        flex: 1 1 auto !important;
         min-width: 0 !important;
+        width: auto !important;
     }
-    div[data-testid="stChatMessage"] .finsight-answer-body [data-testid="stHorizontalBlock"] > div:last-child {
-        flex: 0 0 auto !important;
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker)
+        [data-testid="stElementContainer"]:has(.finsight-cite-bullet-row)
+        [data-testid="column"]:last-child {
+        flex: 0 0 2rem !important;
+        width: 2rem !important;
+        min-width: 2rem !important;
+        padding-top: 0.05rem !important;
     }
-    div[data-testid="stChatMessage"] .finsight-cite-btn[data-testid="stBaseButton-tertiary"],
-    div[data-testid="stChatMessage"] .finsight-cite-btn[data-testid="stBaseButton-secondary"] {
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker) [data-testid="stButton"] > button {
         min-height: 1.45rem !important;
         height: 1.45rem !important;
         padding: 0 0.35rem !important;
-        margin: 0 0.05rem !important;
+        margin: 0 !important;
         font-size: 0.95rem !important;
         line-height: 1 !important;
-        vertical-align: baseline;
         color: #9ec5f5 !important;
         border: 1px solid transparent !important;
     }
-    div[data-testid="stChatMessage"] .finsight-cite-btn:hover {
+    div[data-testid="stChatMessage"]:has(.finsight-answer-body-marker) [data-testid="stButton"] > button:hover {
         color: #d4e8ff !important;
         border-color: #3a5275 !important;
         background: rgba(30, 48, 78, 0.55) !important;
@@ -697,6 +741,32 @@ def _inject_main_block_padding_fix() -> None:
         <script>
         (function () {
           const doc = window.parent.document;
+          function fixCiteBulletSpacing() {
+            doc.querySelectorAll('[data-testid="stChatMessage"]').forEach(function (msg) {
+              if (!msg.querySelector('.finsight-answer-body-marker')) return;
+              msg.querySelectorAll('.finsight-answer-body-marker, .finsight-answer-body-end').forEach(function (m) {
+                var shell = m.closest('[data-testid="stElementContainer"]');
+                if (shell) shell.style.setProperty('display', 'none', 'important');
+              });
+              msg.querySelectorAll('[data-testid="stVerticalBlock"]').forEach(function (vb) {
+                if (!vb.querySelector('.finsight-cite-bullet-row')) return;
+                vb.style.setProperty('gap', '0', 'important');
+                vb.style.setProperty('row-gap', '0', 'important');
+                vb.style.setProperty('column-gap', '0', 'important');
+              });
+              msg.querySelectorAll('[data-testid="stElementContainer"]').forEach(function (ec) {
+                if (!ec.closest('[data-testid="stVerticalBlock"]') ||
+                    !ec.closest('[data-testid="stVerticalBlock"]').querySelector('.finsight-cite-bullet-row')) {
+                  return;
+                }
+                ec.style.setProperty('margin-top', '0', 'important');
+                ec.style.setProperty('margin-bottom', '0', 'important');
+              });
+              msg.querySelectorAll('p.finsight-cite-bullet').forEach(function (p) {
+                p.style.setProperty('margin-bottom', '1.5rem', 'important');
+              });
+            });
+          }
           function apply() {
             const el = doc.querySelector('[data-testid="stMainBlockContainer"]');
             if (!el) return;
@@ -709,6 +779,7 @@ def _inject_main_block_padding_fix() -> None:
               vb.style.setProperty("row-gap", "0", "important");
               vb.style.setProperty("column-gap", "0", "important");
             });
+            fixCiteBulletSpacing();
           }
           apply();
           setTimeout(apply, 100);
@@ -918,29 +989,6 @@ def _apply_citation_navigation(*, doc: str, page: int, indexed: list[str]) -> No
     st.session_state["finsight_pdf_page_input"] = max(1, int(page))
 
 
-def _split_text_for_inline_cite(text: str) -> tuple[str, str]:
-    """
-    Long paragraphs: render body as a block, last sentence inline with the cite button.
-    Short trailing text stays on one row with the icon (matches end-of-sentence cites).
-    """
-    chunk = text.strip()
-    if not chunk:
-        return "", ""
-    last_period = chunk.rfind(".")
-    if last_period <= 0:
-        return "", chunk
-    prev_period = chunk.rfind(".", 0, max(0, last_period - 1))
-    if prev_period == -1:
-        return "", chunk
-    prefix = chunk[: prev_period + 1].strip()
-    suffix = chunk[prev_period + 1 :].strip()
-    if not suffix:
-        return "", chunk
-    if len(prefix) < 100:
-        return "", chunk
-    return prefix, suffix
-
-
 def _render_cite_button(*, part: str, msg_key: str, para_idx: int, seg_idx: int) -> None:
     parsed = _parse_citation_tag(part)
     tip = f"{part}\n\nClick to open in PDF viewer."
@@ -958,16 +1006,38 @@ def _render_cite_button(*, part: str, msg_key: str, para_idx: int, seg_idx: int)
     )
 
 
-def _render_inline_cite_row(text: str, *, msg_key: str, para_idx: int, seg_idx: int, cite_part: str) -> None:
-    """Text fragment + magnifying glass on one baseline row."""
-    with st.container(horizontal=True, gap="small", vertical_alignment="center"):
-        if text.strip():
-            st.markdown(
-                f'<span class="finsight-answer-inline">{_markdown_inline_html(text)}</span>',
-                unsafe_allow_html=True,
-            )
+def _render_cite_bullet_row(
+    text: str,
+    cite_part: str,
+    *,
+    msg_key: str,
+    para_idx: int,
+    seg_idx: int,
+    first_in_answer: bool,
+    last_in_para: bool,
+) -> None:
+    """One bullet line (full width) with PDF cite control aligned on the right."""
+    p_classes = ["finsight-cite-bullet", "finsight-cite-bullet-row"]
+    if first_in_answer:
+        p_classes.append("finsight-cite-bullet-row-first")
+    if last_in_para:
+        p_classes.append("finsight-cite-bullet-row-last")
+    class_attr = html.escape(" ".join(p_classes), quote=True)
+
+    text_col, btn_col = st.columns([1, 0.06], gap="small", vertical_alignment="top")
+    with text_col:
+        body = _markdown_inline_html(text.strip()) if text.strip() else "—"
+        st.markdown(
+            f'<p class="{class_attr}">'
+            f'<span class="finsight-cite-bullet-mark">•</span>{body}</p>',
+            unsafe_allow_html=True,
+        )
+    with btn_col:
         _render_cite_button(
-            part=cite_part, msg_key=msg_key, para_idx=para_idx, seg_idx=seg_idx
+            part=cite_part,
+            msg_key=msg_key,
+            para_idx=para_idx,
+            seg_idx=seg_idx,
         )
 
 
@@ -986,35 +1056,46 @@ def _markdown_inline_html(text: str) -> str:
     return escaped.replace("\n", " ")
 
 
-def _render_answer_paragraph(para: str, *, msg_key: str, para_idx: int) -> None:
+def _render_answer_paragraph(
+    para: str,
+    *,
+    msg_key: str,
+    para_idx: int,
+    first_cite_in_answer: bool,
+) -> bool:
+    """Returns True after the first citation row has been rendered."""
     parts = re.split(r"(\[Doc:[^\]]+\])", para, flags=re.IGNORECASE)
     has_cite = any(_CITATION_TAG_RE.fullmatch(p or "") for p in parts)
     if not has_cite:
         st.markdown(_markdown_light_to_html(para), unsafe_allow_html=True)
-        return
+        return first_cite_in_answer
 
     seg_idx = 0
     pending_text = ""
+    cite_count = sum(1 for p in parts if p and _CITATION_TAG_RE.fullmatch(p))
+    cite_seen = 0
     for part in parts:
         if not part:
             continue
         if _CITATION_TAG_RE.fullmatch(part):
-            prefix, suffix = _split_text_for_inline_cite(pending_text)
-            if prefix:
-                st.markdown(_markdown_light_to_html(prefix), unsafe_allow_html=True)
-            _render_inline_cite_row(
-                suffix or pending_text.strip(),
+            cite_seen += 1
+            _render_cite_bullet_row(
+                pending_text,
+                part,
                 msg_key=msg_key,
                 para_idx=para_idx,
                 seg_idx=seg_idx,
-                cite_part=part,
+                first_in_answer=first_cite_in_answer,
+                last_in_para=cite_seen == cite_count,
             )
+            first_cite_in_answer = False
             pending_text = ""
             seg_idx += 1
         else:
             pending_text += part
     if pending_text.strip():
         st.markdown(_markdown_light_to_html(pending_text), unsafe_allow_html=True)
+    return first_cite_in_answer
 
 
 def _inject_sidebar_pdf_tab_focus() -> None:
@@ -1136,11 +1217,23 @@ def _render_answer(answer: str, *, msg_key: str) -> None:
     if tip in body:
         body = body.replace(tip, f"**{tip}**")
     body = _normalize_citation_placement(body)
-    st.markdown('<div class="finsight-answer-body">', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="finsight-answer-body-marker" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+    first_cite = True
     for para_idx, para in enumerate(body.split("\n\n")):
         if para.strip():
-            _render_answer_paragraph(para, msg_key=msg_key, para_idx=para_idx)
-    st.markdown("</div>", unsafe_allow_html=True)
+            first_cite = _render_answer_paragraph(
+                para,
+                msg_key=msg_key,
+                para_idx=para_idx,
+                first_cite_in_answer=first_cite,
+            )
+    st.markdown(
+        '<div class="finsight-answer-body-end" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _get_graph():
