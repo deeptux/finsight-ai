@@ -1003,9 +1003,20 @@ def _resolve_indexed_doc(doc: str, indexed: list[str]) -> str | None:
     return None
 
 
-def _on_citation_button_click(doc: str, page: int) -> None:
+def _cite_highlight_query(text: str) -> str:
+    """Plain text from the citation bullet for PDF search/highlight."""
+    cleaned = re.sub(r"\[Doc:[^\]]+\]", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:500]
+
+
+def _on_citation_button_click(doc: str, page: int, highlight: str = "") -> None:
     """Streamlit rerun (no browser reload) — applied in main via pending cite."""
-    st.session_state.finsight_cite_pending = {"doc": doc, "page": int(page)}
+    st.session_state.finsight_cite_pending = {
+        "doc": doc,
+        "page": int(page),
+        "highlight": _cite_highlight_query(highlight),
+    }
 
 
 def _consume_pending_citation(indexed: list[str]) -> None:
@@ -1015,11 +1026,18 @@ def _consume_pending_citation(indexed: list[str]) -> None:
     _apply_citation_navigation(
         doc=str(pending.get("doc", "")),
         page=int(pending.get("page", 1)),
+        highlight=str(pending.get("highlight", "")),
         indexed=indexed,
     )
 
 
-def _apply_citation_navigation(*, doc: str, page: int, indexed: list[str]) -> None:
+def _apply_citation_navigation(
+    *,
+    doc: str,
+    page: int,
+    indexed: list[str],
+    highlight: str = "",
+) -> None:
     """Jump PDF viewer to doc/page; reset widget keys so Streamlit picks up session state."""
     resolved = _resolve_indexed_doc(doc, indexed) or doc.strip()
     names = sorted(indexed)
@@ -1028,15 +1046,22 @@ def _apply_citation_navigation(*, doc: str, page: int, indexed: list[str]) -> No
         resolved = fuzzy if fuzzy else names[0]
     st.session_state.pdf_view_doc = resolved
     st.session_state.pdf_view_page = max(1, page)
-    st.session_state.pdf_view_highlight = ""
+    st.session_state.pdf_view_highlight = _cite_highlight_query(highlight)
     st.session_state.finsight_focus_pdf_tab = True
     st.session_state["finsight_pdf_select"] = resolved
     st.session_state["finsight_pdf_page_input"] = max(1, int(page))
 
 
-def _render_cite_button(*, part: str, msg_key: str, para_idx: int, seg_idx: int) -> None:
+def _render_cite_button(
+    *,
+    part: str,
+    msg_key: str,
+    para_idx: int,
+    seg_idx: int,
+    highlight_text: str = "",
+) -> None:
     parsed = _parse_citation_tag(part)
-    tip = f"{part}\n\nClick to open in PDF viewer."
+    tip = f"{part}\n\nClick to open in PDF viewer with matching text highlighted."
     if not parsed:
         st.markdown(part)
         return
@@ -1047,7 +1072,7 @@ def _render_cite_button(*, part: str, msg_key: str, para_idx: int, seg_idx: int)
         help=tip,
         type="tertiary",
         on_click=_on_citation_button_click,
-        args=(doc, page),
+        args=(doc, page, highlight_text),
     )
 
 
@@ -1083,6 +1108,7 @@ def _render_cite_bullet_row(
             msg_key=msg_key,
             para_idx=para_idx,
             seg_idx=seg_idx,
+            highlight_text=text,
         )
 
 
@@ -1618,6 +1644,7 @@ def _render_pdf_page_nav(*, page: int, page_count: int) -> None:
             type="secondary",
         ):
             st.session_state.pdf_view_page = max(1, page - 1)
+            st.session_state.pdf_view_highlight = ""
             st.rerun()
     with nav_page:
         new_page = st.number_input(
@@ -1630,6 +1657,7 @@ def _render_pdf_page_nav(*, page: int, page_count: int) -> None:
         )
         if int(new_page) != st.session_state.pdf_view_page:
             st.session_state.pdf_view_page = int(new_page)
+            st.session_state.pdf_view_highlight = ""
             st.rerun()
     with nav_total:
         total_label = str(page_count) if page_count else "?"
@@ -1645,6 +1673,7 @@ def _render_pdf_page_nav(*, page: int, page_count: int) -> None:
             type="secondary",
         ):
             st.session_state.pdf_view_page = min(max_page, page + 1)
+            st.session_state.pdf_view_highlight = ""
             st.rerun()
 
     _inject_pdf_viewer_spacing()
@@ -1699,6 +1728,7 @@ def _render_pdf_viewer_panel(indexed: list[str]) -> None:
     if picked != st.session_state.pdf_view_doc:
         st.session_state.pdf_view_doc = picked
         st.session_state.pdf_view_page = 1
+        st.session_state.pdf_view_highlight = ""
         st.session_state["finsight_pdf_page_input"] = 1
     else:
         st.session_state.pdf_view_doc = picked

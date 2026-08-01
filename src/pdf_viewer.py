@@ -35,6 +35,13 @@ def _highlight_candidates(query: str | None) -> list[str]:
         if len(words) >= n:
             candidates.append(" ".join(words[-n:]))
             candidates.append(" ".join(words[:n]))
+    if len(words) >= 6:
+        mid = max(0, len(words) // 2 - 3)
+        candidates.append(" ".join(words[mid : mid + 6]))
+    for m in re.findall(r"\$[\d,]+(?:\.\d+)?|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b", text):
+        if len(m) >= 3:
+            candidates.append(m.replace(",", ""))
+            candidates.append(m)
     # Acronyms
     for acr in re.findall(r"\b[A-Z]{2,10}\b", text):
         candidates.append(acr)
@@ -79,14 +86,18 @@ def render_pdf_page_png(
         page = doc[idx]
 
         for term in _highlight_candidates(highlight_query):
+            if len(term) < 3:
+                continue
             try:
                 rects = page.search_for(term)
+                if not rects and " " in term:
+                    rects = page.search_for(term.replace("-", " "))
             except Exception:
                 continue
-            for rect in rects[:12]:
+            for rect in rects[:16]:
                 annot = page.add_highlight_annot(rect)
                 if annot is not None:
-                    annot.set_colors(stroke=(1, 0.92, 0.2))
+                    annot.set_colors(stroke=(1, 0.85, 0.1), fill=(1, 0.95, 0.35))
                     annot.update()
             if rects:
                 break
