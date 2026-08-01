@@ -648,17 +648,34 @@ DARK_CSS = """
         background: rgba(30, 48, 78, 0.55) !important;
     }
 
-    /* PDF viewer tab (left sidebar) */
-    [data-testid="stSidebar"] .finsight-pdf-page-scroll-host {
-        flex: 1 1 auto !important;
+    /* PDF viewer tab (left sidebar) — marker + row ids (see _render_pdf_viewer_panel) */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(#finsight-pdf-doc-row-marker):has(#finsight-pdf-nav-marker),
+    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:has(#finsight-pdf-doc-row-marker)
+        > [data-testid="stVerticalBlock"]:has(#finsight-pdf-nav-marker) {
+        gap: 0 !important;
+        row-gap: 0 !important;
+        column-gap: 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"]:has(#finsight-pdf-doc-row-marker):has(#finsight-pdf-nav-marker)
+        > [data-testid="stElementContainer"],
+    [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:has(#finsight-pdf-doc-row-marker)
+        > [data-testid="stVerticalBlock"]:has(#finsight-pdf-nav-marker)
+        > [data-testid="stElementContainer"] {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-sidebar-panel),
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-doc-row-marker),
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-nav-marker),
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-page-preview) {
+        display: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
         min-height: 0 !important;
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-        overscroll-behavior: contain;
     }
-    [data-testid="stSidebar"] .finsight-pdf-page-scroll-host [data-testid="stImage"] {
-        width: 100% !important;
-    }
+    #finsight-pdf-sidebar-panel,
+    #finsight-pdf-doc-row-marker,
+    #finsight-pdf-nav-marker,
     #finsight-pdf-page-preview {
         display: block !important;
         height: 0 !important;
@@ -666,35 +683,63 @@ DARK_CSS = """
         padding: 0 !important;
         overflow: hidden !important;
     }
-    #finsight-pdf-nav-marker {
+    [data-testid="stSidebar"] #finsight-pdf-doc-row,
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-doc-row-marker)
+        + [data-testid="stElementContainer"] {
+        margin-top: 0 !important;
+        margin-bottom: 0.5rem !important;
+    }
+    [data-testid="stSidebar"] #finsight-pdf-nav-row,
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] {
+        margin-top: 0 !important;
+        margin-bottom: 1.5rem !important;
+    }
+    [data-testid="stSidebar"] #finsight-pdf-preview-row,
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-page-preview)
+        + [data-testid="stElementContainer"] {
+        margin-top: 0.5rem !important;
+        margin-bottom: 0 !important;
+    }
+    [data-testid="stSidebar"] #finsight-pdf-preview-row {
+        overflow: visible !important;
+    }
+    [data-testid="stSidebar"] #finsight-pdf-preview-row [data-testid="stImage"] {
+        overflow: visible !important;
+        width: 100% !important;
+    }
+    [data-testid="stSidebar"] .finsight-pdf-page-scroll-host {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain;
+    }
+    [data-testid="stSidebar"] .finsight-pdf-page-scroll-host img {
+        width: 100% !important;
+        height: auto !important;
         display: block !important;
-        height: 0 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: hidden !important;
     }
-    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
-        + [data-testid="stElementContainer"] > [data-testid="stHorizontalBlock"] {
-        gap: 0.15rem !important;
-        align-items: center !important;
-        flex-wrap: nowrap !important;
-        margin-bottom: 0.35rem !important;
-    }
-    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
-        + [data-testid="stElementContainer"] [data-testid="stNumberInput"] {
+
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stNumberInput"],
+    [data-testid="stSidebar"] #finsight-pdf-nav-row [data-testid="stNumberInput"] {
         max-width: 2.85rem !important;
         min-width: 2.85rem !important;
     }
-    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
-        + [data-testid="stElementContainer"] [data-testid="stNumberInput"] input {
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stNumberInput"] input,
+    [data-testid="stSidebar"] #finsight-pdf-nav-row [data-testid="stNumberInput"] input {
         text-align: center !important;
         padding: 0.2rem 0.15rem !important;
         font-size: var(--fs-sidebar-body) !important;
     }
-    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-nav-marker)
         + [data-testid="stElementContainer"] [data-testid="stNumberInputStepDown"],
-    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
-        + [data-testid="stElementContainer"] [data-testid="stNumberInputStepUp"] {
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> #finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stNumberInputStepUp"],
+    [data-testid="stSidebar"] #finsight-pdf-nav-row [data-testid="stNumberInputStepDown"],
+    [data-testid="stSidebar"] #finsight-pdf-nav-row [data-testid="stNumberInputStepUp"] {
         display: none !important;
     }
     [data-testid="stSidebar"] .finsight-pdf-nav-of {
@@ -1424,6 +1469,53 @@ def _init_pdf_view_state() -> None:
         st.session_state.pdf_view_highlight = ""
 
 
+_PDF_VIEWER_ROW_LAYOUT_FN = """
+function applyPdfViewerRowLayout(doc) {
+  const docMarker = doc.getElementById("finsight-pdf-doc-row-marker");
+  if (!docMarker) return;
+  let stack = docMarker.closest('[data-testid="stVerticalBlock"]');
+  while (stack && !stack.querySelector("#finsight-pdf-nav-marker")) {
+    stack = stack.parentElement
+      ? stack.parentElement.closest('[data-testid="stVerticalBlock"]')
+      : null;
+  }
+  if (!stack) return;
+  stack.style.setProperty("gap", "0", "important");
+  stack.style.setProperty("row-gap", "0", "important");
+  stack.style.setProperty("column-gap", "0", "important");
+  stack.querySelectorAll(':scope > [data-testid="stElementContainer"]').forEach(function (ec) {
+    ec.style.setProperty("margin-top", "0", "important");
+    ec.style.setProperty("margin-bottom", "0", "important");
+  });
+  [
+    "finsight-pdf-sidebar-panel",
+    "finsight-pdf-doc-row-marker",
+    "finsight-pdf-nav-marker",
+    "finsight-pdf-page-preview",
+  ].forEach(function (id) {
+    const el = doc.getElementById(id);
+    if (!el) return;
+    const shell = el.closest('[data-testid="stElementContainer"]');
+    if (shell) shell.style.setProperty("display", "none", "important");
+  });
+  [
+    ["finsight-pdf-doc-row-marker", "finsight-pdf-doc-row", "0", "0.5rem"],
+    ["finsight-pdf-nav-marker", "finsight-pdf-nav-row", "0", "1.5rem"],
+    ["finsight-pdf-page-preview", "finsight-pdf-preview-row", "0.5rem", "0"],
+  ].forEach(function (row) {
+    const el = doc.getElementById(row[0]);
+    if (!el) return;
+    const shell = el.closest('[data-testid="stElementContainer"]');
+    const target = shell && shell.nextElementSibling;
+    if (!target || !target.matches('[data-testid="stElementContainer"]')) return;
+    target.id = row[1];
+    target.style.setProperty("margin-top", row[2], "important");
+    target.style.setProperty("margin-bottom", row[3], "important");
+  });
+}
+"""
+
+
 def _render_pdf_page_preview(*, png: bytes | None, err: str | None) -> None:
     """
     PDF page via st.image (Streamlit expand/fullscreen) inside a bounded scroll host.
@@ -1442,47 +1534,59 @@ def _render_pdf_page_preview(*, png: bytes | None, err: str | None) -> None:
     )
     st.image(io.BytesIO(png), use_container_width=True)
     components.html(
-        """
+        f"""
         <script>
-        (function () {
+        (function () {{
           const doc = window.parent.document;
+          {_PDF_VIEWER_ROW_LAYOUT_FN}
 
-          function pdfSidebarRoot() {
+          function pdfSidebarRoot() {{
             const marker = doc.getElementById("finsight-pdf-sidebar-panel");
             if (!marker) return null;
             return marker.closest('[data-testid="stSidebar"]');
-          }
+          }}
 
-          function scrollHost() {
+          function scrollTarget() {{
             const root = pdfSidebarRoot();
             if (!root) return null;
-            const img = root.querySelector('[data-testid="stImage"]');
-            if (!img) return null;
-            return img.closest('[data-testid="stElementContainer"]');
-          }
+            const stImage = root.querySelector('[data-testid="stImage"]');
+            if (!stImage) return null;
+            const img = stImage.querySelector("img");
+            return img?.parentElement || stImage;
+          }}
 
-          function applyScrollBounds() {
+          function applyScrollBounds() {{
+            applyPdfViewerRowLayout(doc);
             const root = pdfSidebarRoot();
-            const host = scrollHost();
-            if (!root || !host) return;
+            const stImage = root?.querySelector('[data-testid="stImage"]');
+            const host = scrollTarget();
+            if (!root || !stImage || !host) return;
+            const row = doc.getElementById("finsight-pdf-preview-row");
+            if (row) {{
+              row.style.setProperty("overflow", "visible", "important");
+              row.classList.remove("finsight-pdf-page-scroll-host");
+            }}
+            root.querySelectorAll(".finsight-pdf-page-scroll-host").forEach(function (el) {{
+              if (el !== host) el.classList.remove("finsight-pdf-page-scroll-host");
+            }});
             host.classList.add("finsight-pdf-page-scroll-host");
             const rootRect = root.getBoundingClientRect();
-            const hostRect = host.getBoundingClientRect();
-            const maxH = Math.max(120, Math.floor(rootRect.bottom - hostRect.top - 8));
+            const anchorRect = (row || stImage).getBoundingClientRect();
+            const maxH = Math.max(120, Math.floor(rootRect.bottom - anchorRect.top - 8));
             host.style.setProperty("max-height", maxH + "px", "important");
             host.style.setProperty("overflow-y", "auto", "important");
             host.style.setProperty("overflow-x", "hidden", "important");
             host.style.setProperty("min-height", "0", "important");
-          }
+          }}
 
           applyScrollBounds();
           setTimeout(applyScrollBounds, 80);
           setTimeout(applyScrollBounds, 400);
-          if (window.parent && !window.parent.__finsightPdfScrollBound) {
+          if (window.parent && !window.parent.__finsightPdfScrollBound) {{
             window.parent.__finsightPdfScrollBound = true;
             window.parent.addEventListener("resize", applyScrollBounds);
-          }
-        })();
+          }}
+        }})();
         </script>
         """,
         height=0,
@@ -1491,7 +1595,7 @@ def _render_pdf_page_preview(*, png: bytes | None, err: str | None) -> None:
 
 
 def _render_pdf_page_nav(*, page: int, page_count: int) -> None:
-    """Single-row controls: Prev | page | − | + | of N | Next."""
+    """Single-row controls: Prev | page | of N | Next."""
     st.markdown(
         '<div id="finsight-pdf-nav-marker" aria-hidden="true"></div>',
         unsafe_allow_html=True,
@@ -1501,8 +1605,8 @@ def _render_pdf_page_nav(*, page: int, page_count: int) -> None:
     st.session_state.pdf_view_page = page
     st.session_state["finsight_pdf_page_input"] = page
 
-    nav_prev, nav_page, nav_minus, nav_plus, nav_total, nav_next = st.columns(
-        [0.95, 0.55, 0.35, 0.35, 0.75, 0.95],
+    nav_prev, nav_page, nav_total, nav_next = st.columns(
+        [1, 0.55, 0.85, 1],
         gap="small",
         vertical_alignment="center",
     )
@@ -1527,27 +1631,6 @@ def _render_pdf_page_nav(*, page: int, page_count: int) -> None:
         if int(new_page) != st.session_state.pdf_view_page:
             st.session_state.pdf_view_page = int(new_page)
             st.rerun()
-    with nav_minus:
-        if st.button(
-            "−",
-            key="finsight_pdf_minus",
-            disabled=page <= 1,
-            help="Previous page",
-            type="secondary",
-        ):
-            st.session_state.pdf_view_page = max(1, page - 1)
-            st.rerun()
-    with nav_plus:
-        at_end = page_count > 0 and page >= page_count
-        if st.button(
-            "+",
-            key="finsight_pdf_plus",
-            disabled=at_end,
-            help="Next page",
-            type="secondary",
-        ):
-            st.session_state.pdf_view_page = min(page_count or page + 1, page + 1)
-            st.rerun()
     with nav_total:
         total_label = str(page_count) if page_count else "?"
         st.markdown(
@@ -1561,8 +1644,29 @@ def _render_pdf_page_nav(*, page: int, page_count: int) -> None:
             disabled=page_count > 0 and page >= page_count,
             type="secondary",
         ):
-            st.session_state.pdf_view_page = page + 1
+            st.session_state.pdf_view_page = min(max_page, page + 1)
             st.rerun()
+
+    _inject_pdf_viewer_spacing()
+
+
+def _inject_pdf_viewer_spacing() -> None:
+    """Apply PDF tab row margins (doc / nav / preview) and assign stable row element ids."""
+    components.html(
+        f"""
+        <script>
+        (function () {{
+          const doc = window.parent.document;
+          {_PDF_VIEWER_ROW_LAYOUT_FN}
+          applyPdfViewerRowLayout(doc);
+          setTimeout(function () {{ applyPdfViewerRowLayout(doc); }}, 80);
+          setTimeout(function () {{ applyPdfViewerRowLayout(doc); }}, 400);
+        }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def _render_pdf_viewer_panel(indexed: list[str]) -> None:
@@ -1574,6 +1678,11 @@ def _render_pdf_viewer_panel(indexed: list[str]) -> None:
     if not indexed:
         st.info("Upload and index PDFs in the Documents tab.")
         return
+
+    st.markdown(
+        '<div id="finsight-pdf-doc-row-marker" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
 
     names = sorted(indexed)
     if st.session_state.pdf_view_doc not in names:
