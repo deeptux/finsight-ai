@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -70,8 +71,70 @@ def _write_status(jobs: dict[str, dict[str, Any]]) -> None:
 def _update_job(filename: str, payload: dict[str, Any]) -> None:
     with _lock:
         jobs = _read_status()
-        jobs[filename] = payload
+        prev = jobs.get(filename) or {}
+        merged = {**prev, **payload}
+        jobs[filename] = merged
         _write_status(jobs)
+
+
+def report_index_progress(filename: str, *, embedded: int, total_chunks: int) -> None:
+    """Called from ingest worker — live chunk progress in the UI."""
+    _update_job(
+        filename,
+        {
+            "status": "running",
+            "embedded": int(embedded),
+            "total_chunks": int(total_chunks),
+            "updated_at": time.time(),
+        },
+    )
+
+
+def recover_stale_index_jobs(*, max_running_minutes: int = 150) -> list[str]:
+    """
+    Mark jobs stuck in 'running' as errors (crashed worker, Chroma lock, etc.).
+    Uses started_at, updated_at, or PDF file mtime as a heuristic.
+    """
+    now = time.time()
+    limit = max_running_minutes * 60
+    recovered: list[str] = []
+    with _lock:
+        jobs = _read_status()
+        for name, job in list(jobs.items()):
+            if name == _CLEAR_JOB_KEY:
+                continue
+            if job.get("status") != "running":
+                continue
+            started = job.get("started_at")
+            updated = job.get("updated_at")
+            if started is None:
+                pdf = DATA_DIR / name
+                started = pdf.stat().st_mtime if pdf.exists() else now
+            anchor = float(updated or started or now)
+            embedded = job.get("embedded")
+            if embedded is None:
+                stall_limit = 20 * 60
+                if now - anchor > stall_limit:
+                    jobs[name] = {
+                        "status": "error",
+                        "error": (
+                            "Indexing stalled (no progress). Restart App & "
+                            "re-upload this PDF. Large 10-K files can take 15–40 minutes."
+                        ),
+                    }
+                    recovered.append(name)
+                continue
+            if now - anchor > limit:
+                jobs[name] = {
+                    "status": "error",
+                    "error": (
+                        f"Indexing timed out after {max_running_minutes} minutes "
+                        "(large PDF or API rate limits). Remove & try again one PDF at a time."
+                    ),
+                }
+                recovered.append(name)
+        _write_status(jobs)
+    return recovered
 
 
 def sync_manifest_from_chroma() -> list[str]:
@@ -193,8 +256,9 @@ def _get_executor() -> ProcessPoolExecutor:
     global _executor
     with _executor_lock:
         if _executor is None:
-            # 2 workers: parallel multi-PDF without hammering free-tier embedding RPM
-            _executor = ProcessPoolExecutor(max_workers=2)
+            # Single worker: Chroma/SQLite + Gemini embeds are not safe in parallel
+            # (parallel ingests caused indefinite "running" on heavy 10-K PDFs).
+            _executor = ProcessPoolExecutor(max_workers=1)
         return _executor
 
 
@@ -203,18 +267,22 @@ def _ingest_in_process(filename: str, path_str: str) -> dict[str, Any]:
     from src.ingestion import ingest_pdf
 
     try:
-        chunks = ingest_pdf(path_str)
+        chunks = ingest_pdf(path_str, progress_filename=filename)
         return {"filename": filename, "status": "done", "chunks": chunks}
     except Exception as exc:
         return {"filename": filename, "status": "error", "error": str(exc)}
 
 
-def _on_ingest_done(future) -> None:
+def _on_ingest_done(future, filename: str) -> None:
     try:
         result = future.result()
-    except Exception:
+    except Exception as exc:
+        _update_job(
+            filename,
+            {"status": "error", "error": f"Indexing process failed: {exc}"},
+        )
         return
-    filename = result.get("filename", "unknown")
+    filename = result.get("filename", filename)
     status = result.get("status")
 
     with _lock:
@@ -241,6 +309,7 @@ def start_indexing(files: list[tuple[str, bytes]]) -> tuple[list[str], list[str]
     Returns (started_filenames, skipped_messages).
     """
     ensure_directories()
+    recover_stale_index_jobs()
     # Prefer manifest file only — avoid opening Chroma on the UI thread.
     if not MANIFEST_PATH.exists():
         # Best-effort bootstrap; ignore failures so Index stays snappy.
@@ -278,11 +347,19 @@ def start_indexing(files: list[tuple[str, bytes]]) -> tuple[list[str], list[str]
 
         dest = DATA_DIR / filename
         dest.write_bytes(raw)
-        _update_job(filename, {"status": "queued"})
+        now = time.time()
+        _update_job(
+            filename,
+            {
+                "status": "queued",
+                "started_at": now,
+                "updated_at": now,
+            },
+        )
 
         future = executor.submit(_ingest_in_process, filename, str(dest))
         _update_job(filename, {"status": "running"})
-        future.add_done_callback(_on_ingest_done)
+        future.add_done_callback(lambda f, fn=filename: _on_ingest_done(f, fn))
 
         started.append(filename)
         inflight.add(filename)

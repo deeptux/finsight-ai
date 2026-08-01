@@ -17,6 +17,7 @@ from src.config import (
     CHROMA_DIR,
     CHUNK_OVERLAP,
     CHUNK_SIZE,
+    EMBED_BATCH_SIZE,
     EMBEDDING_MODEL,
     ensure_directories,
     get_gemini_api_key,
@@ -152,7 +153,7 @@ def get_vectorstore() -> Chroma:
     )
 
 
-def ingest_pdf(path: str | Path) -> int:
+def ingest_pdf(path: str | Path, *, progress_filename: str | None = None) -> int:
     """
     Index a financial PDF into ChromaDB.
     Returns the number of chunks indexed.
@@ -178,15 +179,32 @@ def ingest_pdf(path: str | Path) -> int:
     if not documents:
         raise ValueError(f"Chunking produced no documents for {pdf_path.name}.")
 
+    total = len(documents)
+    if progress_filename:
+        from src.index_jobs import report_index_progress
+
+        report_index_progress(progress_filename, embedded=0, total_chunks=total)
+
     try:
         vectorstore = get_vectorstore()
-        vectorstore.add_documents(documents)
+        batch_size = max(1, EMBED_BATCH_SIZE)
+        for start in range(0, total, batch_size):
+            batch = documents[start : start + batch_size]
+            vectorstore.add_documents(batch)
+            if progress_filename:
+                from src.index_jobs import report_index_progress
+
+                report_index_progress(
+                    progress_filename,
+                    embedded=min(start + len(batch), total),
+                    total_chunks=total,
+                )
     except ValueError:
         raise
     except Exception as exc:
         raise ValueError(f"Failed to embed/store documents: {exc}") from exc
 
-    return len(documents)
+    return total
 
 
 def delete_indexed_source(filename: str) -> int:

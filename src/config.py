@@ -25,6 +25,7 @@ MAX_INDEXED_PDFS = 4
 
 # Bumped when embedding model changed so old incompatible vectors are not reused.
 CHROMA_COLLECTION = "finsight_ai_financial_docs_v1"
+EMBED_BATCH_SIZE = 40
 
 
 def get_gemini_api_key() -> str:

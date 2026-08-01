@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import html
+import io
+import re
 from typing import Any
 
 import streamlit as st
@@ -20,13 +23,13 @@ from src.index_jobs import (
     is_clearing,
     is_indexing,
     is_removing,
+    recover_stale_index_jobs,
     slots_remaining,
     start_clear_all_indexed_pdfs,
     start_indexing,
     start_remove_indexed_pdf,
     sync_manifest_from_chroma,
 )
-from src.dual_sidebar import inject_dual_sidebar_sync, sync_right_sidebar_query
 from src.pdf_viewer import render_pdf_page_png
 from src.prompts import FALLBACK_UNAVAILABLE
 
@@ -217,6 +220,18 @@ DARK_CSS = """
         padding-left: 1rem !important;
     }
 
+    /*
+     * Streamlit emotion class names (e.g. st-emotion-cache-tn0cau) rotate each run;
+     * target stable testids/classes so the root main column flex never keeps gap: 1rem.
+     */
+    [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"],
+    [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlockBorderWrapper"],
+    [data-testid="stMainBlockContainer"] > div.stVerticalBlock[data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+        row-gap: 0 !important;
+        column-gap: 0 !important;
+    }
+
     section.main .block-container {
         padding-top: 0 !important;
         padding-left: var(--pad-main-x);
@@ -242,35 +257,102 @@ DARK_CSS = """
         padding-top: 0 !important;
     }
 
-    /* Sidebar open: chat column centered in the remaining main area */
-    section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main .block-container {
+    /* Chat main — single column (PDF lives in left sidebar tabs) */
+    section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main .block-container:has(#finsight-chat-main-column) {
         max-width: min(920px, calc(100vw - var(--finsight-sidebar-width) - 2.5rem));
     }
 
-    /* Sidebar collapsed: chat + hero visually centered on full viewport */
-    section[data-testid="stSidebar"][aria-expanded="false"] ~ section.main .block-container {
+    section[data-testid="stSidebar"][aria-expanded="false"] ~ section.main .block-container:has(#finsight-chat-main-column) {
         max-width: min(920px, 96vw);
         margin-left: auto !important;
         margin-right: auto !important;
     }
-    section[data-testid="stSidebar"][aria-expanded="false"] ~ section.main .finsight-hero {
+    section[data-testid="stSidebar"][aria-expanded="false"] ~ section.main .block-container:has(#finsight-chat-main-column) .finsight-hero {
         text-align: center;
-    }
-    section[data-testid="stSidebar"][aria-expanded="false"] ~ section.main [data-testid="stChatInput"] {
-        max-width: min(920px, 96vw);
-        margin-left: auto !important;
-        margin-right: auto !important;
     }
 
     @media (min-width: 1920px) {
-        section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main .block-container {
+        section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main .block-container:has(#finsight-chat-main-column) {
             max-width: min(920px, calc(100vw - 587px - 3rem));
         }
+    }
+
+    section.main .block-container:has(#finsight-chat-main-column) {
+        display: flex !important;
+        flex-direction: column !important;
+        min-height: calc(100vh - 3.5rem) !important;
+        max-height: calc(100vh - 3.5rem) !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+    section.main .block-container:has(#finsight-chat-main-column)
+        > [data-testid="stVerticalBlock"],
+    section.main .block-container:has(#finsight-chat-main-column)
+        > [data-testid="stVerticalBlockBorderWrapper"] {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden !important;
+    }
+    [data-testid="stVerticalBlock"]:has(#finsight-chat-scroll),
+    [data-testid="stVerticalBlockBorderWrapper"]:has(#finsight-chat-scroll) {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        overscroll-behavior: contain;
+        padding-right: 0.15rem;
+    }
+    section.main .block-container:has(#finsight-chat-main-column)
+        [data-testid="stElementContainer"]:has([data-testid="stChatInput"]) {
+        flex-shrink: 0 !important;
+        margin-top: auto !important;
+        padding: 0.5rem 0 0.25rem 0 !important;
+        background: linear-gradient(180deg, rgba(11, 18, 32, 0) 0%, #0b1220 45%) !important;
+        position: sticky !important;
+        bottom: 0 !important;
+        z-index: 5 !important;
+    }
+    section.main .block-container:has(#finsight-chat-main-column) [data-testid="stChatInput"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+    }
+
+    [data-testid="stChatInput"] {
+        border-radius: 12px;
+        font-size: var(--fs-base) !important;
+    }
+    [data-testid="stChatInput"] textarea {
+        font-size: var(--fs-base) !important;
+    }
+
+    @keyframes finsight-spin {
+        to { transform: rotate(360deg); }
+    }
+    .finsight-spin {
+        display: inline-block;
+        animation: finsight-spin 0.8s linear infinite;
     }
 
     .finsight-hero {
         margin: 0 0 clamp(0.5rem, 0.35rem + 0.6vw, 0.85rem) 0;
         padding-top: 0 !important;
+    }
+    .finsight-hero-header-row [data-testid="column"]:last-child {
+        display: flex !important;
+        justify-content: flex-end !important;
+        align-items: flex-start !important;
+        padding-top: 0.35rem !important;
+    }
+    .finsight-hero-header-row [data-testid="column"]:last-child [data-testid="stButton"] {
+        width: auto !important;
+        margin-left: auto !important;
+    }
+    .finsight-hero-header-row [data-testid="column"]:last-child button {
+        white-space: nowrap !important;
+        font-size: var(--fs-caption) !important;
     }
     .finsight-hero h1 {
         font-family: "DM Sans", "IBM Plex Sans", sans-serif !important;
@@ -306,6 +388,7 @@ DARK_CSS = """
         margin-bottom: 0.7rem;
         max-width: min(820px, 92vw);
         width: fit-content;
+        box-sizing: border-box;
     }
     div[data-testid="stChatMessage"] p {
         color: #d7e2f2;
@@ -325,6 +408,25 @@ DARK_CSS = """
         margin-left: 0 !important;
         justify-content: flex-start;
         flex-direction: row !important;
+        width: min(820px, 92vw) !important;
+        max-width: min(820px, 92vw) !important;
+    }
+    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"])
+        [data-testid="stMarkdownContainer"],
+    div[data-testid="stChatMessage"]:has(img[src*="e67e22"]) [data-testid="stMarkdownContainer"],
+    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"])
+        [data-testid="stVerticalBlockBorderWrapper"],
+    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) .finsight-answer-body {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+    div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"])
+        [data-testid="stExpander"],
+    div[data-testid="stChatMessage"]:has(img[src*="e67e22"]) [data-testid="stExpander"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
     }
 
     div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]),
@@ -335,6 +437,7 @@ DARK_CSS = """
         justify-content: flex-start;
         background: rgba(36, 52, 78, 0.92);
         border-color: #3a5275;
+        max-width: min(820px, 92vw);
     }
 
     div[data-testid="stExpander"] {
@@ -344,210 +447,223 @@ DARK_CSS = """
         margin-top: 0.35rem;
         font-size: var(--fs-base);
     }
-    body.finsight-right-sidebar-open section.main .block-container {
-        max-width: 100% !important;
-        width: 100% !important;
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        padding-left: var(--pad-main-x) !important;
-        padding-right: var(--pad-main-x) !important;
-    }
-    /* Chat column grows; PDF column keeps fixed width */
-    body.finsight-right-sidebar-open [data-testid="stColumn"]:has(#finsight-chat-main-column),
-    body.finsight-right-sidebar-open [data-testid="column"]:has(#finsight-chat-main-column) {
-        flex: 1 1 auto !important;
-        min-width: 0 !important;
-        max-width: none !important;
-        width: auto !important;
-    }
-    body.finsight-right-sidebar-open [data-testid="stHorizontalBlock"]:has(#finsight-right-sidebar-marker) {
-        width: 100% !important;
-        max-width: 100% !important;
-    }
 
-    /* Pin chat input to viewport bottom (outside narrow column flow) */
-    [data-testid="stChatInput"] {
-        border-radius: 12px;
-        font-size: var(--fs-base) !important;
-        z-index: 999900;
+    /* In-thread “Analyzing…” — single bubble (no nested box overlap) */
+    div[data-testid="stChatMessage"]:has(.finsight-analyzing-status) {
+        width: min(820px, 92vw) !important;
+        max-width: min(820px, 92vw) !important;
+        padding: 0.55rem 0.85rem !important;
+        margin-bottom: 0.7rem !important;
+        align-items: center !important;
     }
-    section.main [data-testid="stVerticalBlock"]:has(> div [data-testid="stChatInput"]),
-    section.main [data-testid="stElementContainer"]:has([data-testid="stChatInput"]),
-    section.main [data-testid="stBottomBlockContainer"] {
-        position: fixed !important;
-        left: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        z-index: 999900 !important;
-        padding: 0.65rem 1rem 0.85rem 1rem !important;
-        margin: 0 !important;
-        background: linear-gradient(180deg, rgba(11, 18, 32, 0) 0%, rgba(11, 18, 32, 0.92) 35%, #0b1220 100%) !important;
-        pointer-events: none;
-    }
-    section.main [data-testid="stVerticalBlock"]:has(> div [data-testid="stChatInput"]) [data-testid="stChatInput"],
-    section.main [data-testid="stElementContainer"]:has([data-testid="stChatInput"]) [data-testid="stChatInput"],
-    section.main [data-testid="stBottomBlockContainer"] [data-testid="stChatInput"] {
-        pointer-events: auto;
-        max-width: min(920px, 96vw) !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
-    }
-
-    section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main [data-testid="stVerticalBlock"]:has([data-testid="stChatInput"]),
-    section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main [data-testid="stElementContainer"]:has([data-testid="stChatInput"]),
-    section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main [data-testid="stBottomBlockContainer"] {
-        left: var(--finsight-sidebar-width) !important;
-    }
-
-    body.finsight-right-sidebar-open section.main [data-testid="stVerticalBlock"]:has([data-testid="stChatInput"]),
-    body.finsight-right-sidebar-open section.main [data-testid="stElementContainer"]:has([data-testid="stChatInput"]),
-    body.finsight-right-sidebar-open section.main [data-testid="stBottomBlockContainer"] {
-        right: var(--finsight-sidebar-width) !important;
-    }
-    body.finsight-right-sidebar-open section.main [data-testid="stVerticalBlock"]:has([data-testid="stChatInput"]) [data-testid="stChatInput"],
-    body.finsight-right-sidebar-open section.main [data-testid="stElementContainer"]:has([data-testid="stChatInput"]) [data-testid="stChatInput"] {
-        max-width: min(920px, calc(100vw - var(--finsight-sidebar-width) - 3rem)) !important;
-    }
-
-    body.finsight-right-sidebar-open section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main [data-testid="stElementContainer"]:has([data-testid="stChatInput"]) [data-testid="stChatInput"],
-    body.finsight-right-sidebar-open section[data-testid="stSidebar"][aria-expanded="true"] ~ section.main [data-testid="stVerticalBlock"]:has([data-testid="stChatInput"]) [data-testid="stChatInput"] {
-        max-width: min(920px, calc(100vw - 2 * var(--finsight-sidebar-width) - 4rem)) !important;
-    }
-
-    [data-testid="stChatInput"] textarea {
-        font-size: var(--fs-base) !important;
-    }
-
-    html body .stApp [data-testid="stMainBlockContainer"] {
-        padding-bottom: 5.75rem !important;
-    }
-
-    @keyframes finsight-spin {
-        to { transform: rotate(360deg); }
-    }
-    .finsight-spin {
-        display: inline-block;
-        animation: finsight-spin 0.8s linear infinite;
-    }
-
-    /* Right PDF column — native st.columns split (no JS dock / off-screen transform) */
-    [data-testid="stHorizontalBlock"]:has(#finsight-right-sidebar-marker) {
-        align-items: flex-start !important;
-        width: 100% !important;
-    }
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker),
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) {
-        flex: 0 0 var(--finsight-sidebar-width) !important;
-        width: var(--finsight-sidebar-width) !important;
-        min-width: var(--finsight-sidebar-width) !important;
-        max-width: var(--finsight-sidebar-width) !important;
-        background: #0a101a !important;
-        border-left: 1px solid #243047 !important;
-        padding: 0.15rem 0.65rem 1rem 0.65rem !important;
-        box-sizing: border-box !important;
-        position: sticky !important;
-        top: 0 !important;
-        align-self: flex-start !important;
-        max-height: 100vh !important;
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-        box-shadow: -8px 0 24px rgba(0, 0, 0, 0.2);
-    }
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) *,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) * {
-        color: #d7e0ee;
-    }
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) h1,
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) h2,
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) h3,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) h1,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) h2,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) h3 {
-        font-size: var(--fs-sidebar-h) !important;
-        line-height: 1.25 !important;
-        margin-top: 0 !important;
-        padding-top: 0 !important;
-    }
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) p,
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) label,
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) .stMarkdown,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) p,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) label,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) .stMarkdown {
-        font-size: var(--fs-sidebar-body);
-        line-height: 1.45;
-    }
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) .stButton > button,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) .stButton > button {
-        font-size: var(--fs-sidebar-body) !important;
-        padding: 0.35rem 0.5rem !important;
-    }
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) .finsight-right-sidebar-header,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) .finsight-right-sidebar-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 2.25rem;
-        max-height: 2.25rem;
-        padding: 0.15rem 0.1rem 0.1rem 0.1rem;
-        margin-bottom: 0.35rem;
-        border-bottom: 1px solid #243047;
-    }
-    [data-testid="stColumn"]:has(#finsight-right-sidebar-marker) .finsight-right-sidebar-header span,
-    [data-testid="column"]:has(#finsight-right-sidebar-marker) .finsight-right-sidebar-header span {
-        font-size: var(--fs-sidebar-h);
-        font-weight: 600;
-        color: #e8eef7;
-    }
-
-    @media (min-width: 1920px) {
-        [data-testid="stColumn"]:has(#finsight-right-sidebar-marker),
-        [data-testid="column"]:has(#finsight-right-sidebar-marker) {
-            flex: 0 0 587px !important;
-            width: 587px !important;
-            min-width: 587px !important;
-            max-width: 587px !important;
-        }
-    }
-
-    /* Right-edge open chevron when PDF panel is closed */
-    [data-testid="stHorizontalBlock"]:has(#finsight-right-rail-marker) {
-        position: fixed !important;
-        right: 0 !important;
-        top: 50% !important;
-        transform: translateY(-50%) !important;
-        width: auto !important;
-        height: auto !important;
-        min-height: 0 !important;
-        z-index: 999992 !important;
+    div[data-testid="stChatMessage"]:has(.finsight-analyzing-status) [data-testid="stMarkdownContainer"],
+    div[data-testid="stChatMessage"]:has(.finsight-analyzing-status) [data-testid="stElementContainer"] {
         margin: 0 !important;
         padding: 0 !important;
-        border: none !important;
-        background: transparent !important;
-        overflow: visible !important;
+        min-height: 0 !important;
     }
-    body.finsight-right-sidebar-open [data-testid="stHorizontalBlock"]:has(#finsight-right-rail-marker) {
+    div[data-testid="stChatMessage"]:has(.finsight-analyzing-status) .finsight-analyzing-status {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        padding: 0;
+        margin: 0;
+        color: #c5d4ea;
+        font-size: var(--fs-base);
+        line-height: 1.45;
+        width: auto;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+    div[data-testid="stChatMessage"]:has(.finsight-analyzing-status) p {
+        margin: 0 !important;
+        padding: 0 !important;
+        display: contents;
+    }
+    .finsight-analyzing-status .finsight-spin {
+        color: #e67e22;
+        font-size: 1.15rem;
+        flex-shrink: 0;
+        line-height: 1;
+    }
+
+    /* Citation magnifying-glass icons in assistant answers */
+    .finsight-cite-icon {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        vertical-align: -0.15em;
+        width: 1.35rem;
+        height: 1.35rem;
+        margin: 0 0 0 0.05rem;
+        cursor: help;
+        color: #9ec5f5;
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+    .finsight-cite-icon.finsight-cite-clickable {
+        cursor: pointer;
+    }
+    .finsight-cite-icon:focus {
+        outline: 1px solid #5a8fd4;
+        outline-offset: 2px;
+        border-radius: 4px;
+    }
+    .finsight-cite-lens {
+        width: 1.25rem;
+        height: 1.25rem;
+        stroke: currentColor;
+        fill: none;
+        opacity: 0.95;
+    }
+    .finsight-cite-icon:hover .finsight-cite-lens,
+    .finsight-cite-icon:focus .finsight-cite-lens {
+        opacity: 1;
+        color: #b8d4ff;
+    }
+    .finsight-cite-tip {
+        display: none;
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 6px);
+        transform: translateX(-50%);
+        min-width: 10rem;
+        max-width: min(22rem, 70vw);
+        padding: 0.45rem 0.55rem;
+        background: #0f1726;
+        border: 1px solid #3a5275;
+        border-radius: 8px;
+        color: #dce6f5;
+        font-size: var(--fs-caption);
+        line-height: 1.35;
+        white-space: normal;
+        word-break: break-word;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        z-index: 20;
+        pointer-events: none;
+        text-align: left;
+    }
+    .finsight-cite-icon:hover .finsight-cite-tip,
+    .finsight-cite-icon:focus .finsight-cite-tip {
+        display: block;
+    }
+    .finsight-cite-icon.finsight-cite-clickable .finsight-cite-tip {
+        pointer-events: auto;
+        cursor: pointer;
+    }
+    .finsight-cite-icon.finsight-cite-clickable:hover .finsight-cite-lens,
+    .finsight-cite-icon.finsight-cite-clickable:focus .finsight-cite-lens {
+        color: #d4e8ff;
+        stroke-width: 2.1;
+    }
+    div[data-testid="stChatMessage"] .finsight-answer-body p {
+        margin: 0 0 0.65rem 0;
+    }
+    div[data-testid="stChatMessage"] .finsight-answer-body p:last-child {
+        margin-bottom: 0;
+    }
+    div[data-testid="stChatMessage"] .finsight-answer-body .finsight-answer-inline {
+        color: #e8eef7;
+        font-size: inherit;
+        line-height: 1.55;
+    }
+    div[data-testid="stChatMessage"] .finsight-answer-body [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        align-items: baseline !important;
+        gap: 0.1rem 0.2rem !important;
+        width: fit-content !important;
+        max-width: 100% !important;
+    }
+    div[data-testid="stChatMessage"] .finsight-answer-body [data-testid="stHorizontalBlock"] > div {
+        width: auto !important;
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+    }
+    div[data-testid="stChatMessage"] .finsight-answer-body [data-testid="stHorizontalBlock"] > div:last-child {
+        flex: 0 0 auto !important;
+    }
+    div[data-testid="stChatMessage"] .finsight-cite-btn[data-testid="stBaseButton-tertiary"],
+    div[data-testid="stChatMessage"] .finsight-cite-btn[data-testid="stBaseButton-secondary"] {
+        min-height: 1.45rem !important;
+        height: 1.45rem !important;
+        padding: 0 0.35rem !important;
+        margin: 0 0.05rem !important;
+        font-size: 0.95rem !important;
+        line-height: 1 !important;
+        vertical-align: baseline;
+        color: #9ec5f5 !important;
+        border: 1px solid transparent !important;
+    }
+    div[data-testid="stChatMessage"] .finsight-cite-btn:hover {
+        color: #d4e8ff !important;
+        border-color: #3a5275 !important;
+        background: rgba(30, 48, 78, 0.55) !important;
+    }
+
+    /* PDF viewer tab (left sidebar) */
+    [data-testid="stSidebar"] .finsight-pdf-page-scroll-host {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain;
+    }
+    [data-testid="stSidebar"] .finsight-pdf-page-scroll-host [data-testid="stImage"] {
+        width: 100% !important;
+    }
+    #finsight-pdf-page-preview {
+        display: block !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+    #finsight-pdf-nav-marker {
+        display: block !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] > [data-testid="stHorizontalBlock"] {
+        gap: 0.15rem !important;
+        align-items: center !important;
+        flex-wrap: nowrap !important;
+        margin-bottom: 0.35rem !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stNumberInput"] {
+        max-width: 2.85rem !important;
+        min-width: 2.85rem !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stNumberInput"] input {
+        text-align: center !important;
+        padding: 0.2rem 0.15rem !important;
+        font-size: var(--fs-sidebar-body) !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stNumberInputStepDown"],
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-pdf-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stNumberInputStepUp"] {
         display: none !important;
     }
-    [data-testid="stColumn"]:has(#finsight-right-rail-marker) .stButton > button,
-    [data-testid="column"]:has(#finsight-right-rail-marker) .stButton > button {
-        background: #0a101a !important;
-        border: 1px solid #243047 !important;
-        border-right: none !important;
-        border-radius: 8px 0 0 8px !important;
-        color: #d7e0ee !important;
-        min-width: 1.75rem !important;
-        width: 1.75rem !important;
-        padding: 0.65rem 0.35rem !important;
-        box-shadow: -4px 0 12px rgba(0, 0, 0, 0.25);
-        font-size: 1.1rem !important;
-        line-height: 1 !important;
+    [data-testid="stSidebar"] .finsight-pdf-nav-of {
+        margin: 0 !important;
+        padding: 0 !important;
+        white-space: nowrap !important;
+        font-size: var(--fs-sidebar-body) !important;
+        color: #9aa8bc !important;
     }
-    [data-testid="stColumn"]:has(#finsight-right-rail-marker) .stButton > button:hover,
-    [data-testid="column"]:has(#finsight-right-rail-marker) .stButton > button:hover {
-        background: #121a28 !important;
-        color: #f3f7ff !important;
+    [data-testid="stSidebar"] [data-testid="stTabs"] [data-testid="stVerticalBlock"] {
+        padding-top: 0.25rem !important;
     }
+
 </style>
 """
 st.markdown(DARK_CSS, unsafe_allow_html=True)
@@ -555,10 +671,16 @@ st.markdown(DARK_CSS, unsafe_allow_html=True)
 MAIN_BLOCK_PADDING_FIX = """
 <style id="finsight-main-padding-fix-late">
 html body .stApp [data-testid="stMainBlockContainer"] {
-    padding-top: 1rem !important;
-    padding-right: 1rem !important;
-    padding-bottom: 5.75rem !important;
+    padding-top: 0 !important;
+    padding-right: 1.5rem !important;
+    padding-bottom: 0 !important;
     padding-left: 2rem !important;
+}
+html body .stApp [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"],
+html body .stApp [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlockBorderWrapper"] {
+    gap: 0 !important;
+    row-gap: 0 !important;
+    column-gap: 0 !important;
 }
 </style>
 """
@@ -578,12 +700,15 @@ def _inject_main_block_padding_fix() -> None:
           function apply() {
             const el = doc.querySelector('[data-testid="stMainBlockContainer"]');
             if (!el) return;
-            const rightOpen = doc.body.classList.contains("finsight-right-sidebar-open");
-            el.style.setProperty("padding-top", "1rem", "important");
-            el.style.setProperty("padding-bottom", "1rem", "important");
+            el.style.setProperty("padding-top", "0", "important");
+            el.style.setProperty("padding-bottom", "0", "important");
             el.style.setProperty("padding-left", "2rem", "important");
-            el.style.setProperty("padding-right", "1rem", "important");
-            el.style.setProperty("padding-bottom", "5.75rem", "important");
+            el.style.setProperty("padding-right", "1.5rem", "important");
+            el.querySelectorAll(':scope > [data-testid="stVerticalBlock"]').forEach(function (vb) {
+              vb.style.setProperty("gap", "0", "important");
+              vb.style.setProperty("row-gap", "0", "important");
+              vb.style.setProperty("column-gap", "0", "important");
+            });
           }
           apply();
           setTimeout(apply, 100);
@@ -708,16 +833,314 @@ def _with_indexing_disclaimer(answer: str, indexing_active: bool) -> str:
     return f"{answer.rstrip()}\n\n*{INDEXING_DISCLAIMER}*"
 
 
-def _render_answer(answer: str) -> None:
-    """Render answer; emphasize the query-refinement tip when present."""
+_CITATION_TAG_RE = re.compile(r"\[Doc:[^\]]+\]", re.IGNORECASE)
+# Model often emits "[Doc: …]." or "[Doc: …]\n." — render as ".📖" not "📖" on its own line.
+_CITATION_BEFORE_PERIOD_RE = re.compile(
+    r"(\[Doc:[^\]]+\])\s*\.",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _normalize_citation_placement(text: str) -> str:
+    """Place citation tags immediately after the sentence period (inline)."""
+    normalized = _CITATION_BEFORE_PERIOD_RE.sub(r".\1", text)
+    normalized = re.sub(r"\.\s+(\[Doc:)", r".\1", normalized, flags=re.IGNORECASE)
+    return normalized
+
+
+_CITATION_PARSE_RE = re.compile(
+    r"\[Doc:\s*(?P<doc>.+?)\s*,\s*Page:\s*(?P<pages>[^\]]+)\]",
+    re.IGNORECASE,
+)
+
+
+def _parse_citation_tag(citation: str) -> tuple[str, int] | None:
+    match = _CITATION_PARSE_RE.match(citation.strip())
+    if not match:
+        return None
+    doc = match.group("doc").strip()
+    page_token = match.group("pages").strip().split(",")[0].strip()
+    try:
+        page = max(1, int(page_token))
+    except ValueError:
+        return None
+    return doc, page
+
+
+def _resolve_indexed_doc(doc: str, indexed: list[str]) -> str | None:
+    """Match citation filename to an indexed PDF (exact or fuzzy)."""
+    needle = doc.strip()
+    if not needle or not indexed:
+        return None
+    if needle in indexed:
+        return needle
+    lower = needle.lower()
+    for name in indexed:
+        if name.lower() == lower:
+            return name
+    base = needle.replace("\\", "/").rsplit("/", 1)[-1]
+    for name in indexed:
+        if name == base or name.lower() == base.lower():
+            return name
+        if name.lower().endswith(base.lower()) or base.lower() in name.lower():
+            return name
+    return None
+
+
+def _on_citation_button_click(doc: str, page: int) -> None:
+    """Streamlit rerun (no browser reload) — applied in main via pending cite."""
+    st.session_state.finsight_cite_pending = {"doc": doc, "page": int(page)}
+
+
+def _consume_pending_citation(indexed: list[str]) -> None:
+    pending = st.session_state.pop("finsight_cite_pending", None)
+    if not pending:
+        return
+    _apply_citation_navigation(
+        doc=str(pending.get("doc", "")),
+        page=int(pending.get("page", 1)),
+        indexed=indexed,
+    )
+
+
+def _apply_citation_navigation(*, doc: str, page: int, indexed: list[str]) -> None:
+    """Jump PDF viewer to doc/page; reset widget keys so Streamlit picks up session state."""
+    resolved = _resolve_indexed_doc(doc, indexed) or doc.strip()
+    names = sorted(indexed)
+    if names and resolved not in names:
+        fuzzy = _resolve_indexed_doc(doc, indexed)
+        resolved = fuzzy if fuzzy else names[0]
+    st.session_state.pdf_view_doc = resolved
+    st.session_state.pdf_view_page = max(1, page)
+    st.session_state.pdf_view_highlight = ""
+    st.session_state.finsight_focus_pdf_tab = True
+    st.session_state["finsight_pdf_select"] = resolved
+    st.session_state["finsight_pdf_page_input"] = max(1, int(page))
+
+
+def _split_text_for_inline_cite(text: str) -> tuple[str, str]:
+    """
+    Long paragraphs: render body as a block, last sentence inline with the cite button.
+    Short trailing text stays on one row with the icon (matches end-of-sentence cites).
+    """
+    chunk = text.strip()
+    if not chunk:
+        return "", ""
+    last_period = chunk.rfind(".")
+    if last_period <= 0:
+        return "", chunk
+    prev_period = chunk.rfind(".", 0, max(0, last_period - 1))
+    if prev_period == -1:
+        return "", chunk
+    prefix = chunk[: prev_period + 1].strip()
+    suffix = chunk[prev_period + 1 :].strip()
+    if not suffix:
+        return "", chunk
+    if len(prefix) < 100:
+        return "", chunk
+    return prefix, suffix
+
+
+def _render_cite_button(*, part: str, msg_key: str, para_idx: int, seg_idx: int) -> None:
+    parsed = _parse_citation_tag(part)
+    tip = f"{part}\n\nClick to open in PDF viewer."
+    if not parsed:
+        st.markdown(part)
+        return
+    doc, page = parsed
+    st.button(
+        "🔍",
+        key=f"finsight_cite_{msg_key}_{para_idx}_{seg_idx}",
+        help=tip,
+        type="tertiary",
+        on_click=_on_citation_button_click,
+        args=(doc, page),
+    )
+
+
+def _render_inline_cite_row(text: str, *, msg_key: str, para_idx: int, seg_idx: int, cite_part: str) -> None:
+    """Text fragment + magnifying glass on one baseline row."""
+    with st.container(horizontal=True, gap="small", vertical_alignment="center"):
+        if text.strip():
+            st.markdown(
+                f'<span class="finsight-answer-inline">{_markdown_inline_html(text)}</span>',
+                unsafe_allow_html=True,
+            )
+        _render_cite_button(
+            part=cite_part, msg_key=msg_key, para_idx=para_idx, seg_idx=seg_idx
+        )
+
+
+def _markdown_inline_html(text: str) -> str:
+    """Inline markdown (** / *) for citation row text chunks."""
+    if not text:
+        return ""
+    escaped = html.escape(text)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped, flags=re.DOTALL)
+    escaped = re.sub(
+        r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
+        r"<em>\1</em>",
+        escaped,
+        flags=re.DOTALL,
+    )
+    return escaped.replace("\n", " ")
+
+
+def _render_answer_paragraph(para: str, *, msg_key: str, para_idx: int) -> None:
+    parts = re.split(r"(\[Doc:[^\]]+\])", para, flags=re.IGNORECASE)
+    has_cite = any(_CITATION_TAG_RE.fullmatch(p or "") for p in parts)
+    if not has_cite:
+        st.markdown(_markdown_light_to_html(para), unsafe_allow_html=True)
+        return
+
+    seg_idx = 0
+    pending_text = ""
+    for part in parts:
+        if not part:
+            continue
+        if _CITATION_TAG_RE.fullmatch(part):
+            prefix, suffix = _split_text_for_inline_cite(pending_text)
+            if prefix:
+                st.markdown(_markdown_light_to_html(prefix), unsafe_allow_html=True)
+            _render_inline_cite_row(
+                suffix or pending_text.strip(),
+                msg_key=msg_key,
+                para_idx=para_idx,
+                seg_idx=seg_idx,
+                cite_part=part,
+            )
+            pending_text = ""
+            seg_idx += 1
+        else:
+            pending_text += part
+    if pending_text.strip():
+        st.markdown(_markdown_light_to_html(pending_text), unsafe_allow_html=True)
+
+
+def _inject_sidebar_pdf_tab_focus() -> None:
+    """After citation navigation: expand sidebar and select PDF viewer tab."""
+    components.html(
+        """
+        <script>
+        (function () {
+          const topWin = window.top;
+          const doc = topWin.document;
+
+          function ensureSidebarOpen() {
+            try {
+              const sidebar = doc.querySelector('section[data-testid="stSidebar"]');
+              if (!sidebar || sidebar.getAttribute("aria-expanded") === "true") return;
+              const openBtn =
+                doc.querySelector('[data-testid="stSidebarCollapsedControl"]') ||
+                doc.querySelector('[data-testid="collapsedControl"]');
+              if (openBtn) openBtn.click();
+            } catch (e) {}
+          }
+
+          function clickPdfViewerTab() {
+            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+            if (!sidebar) return false;
+            const tabs = sidebar.querySelectorAll(
+              '[data-testid="stTabs"] button, button[data-baseweb="tab"], [role="tab"]'
+            );
+            for (const tab of tabs) {
+              const label = (tab.innerText || tab.textContent || "").trim();
+              if (label === "PDF viewer") {
+                tab.click();
+                return true;
+              }
+            }
+            return false;
+          }
+
+          function focusPdfTab() {
+            ensureSidebarOpen();
+            clickPdfViewerTab();
+          }
+
+          focusPdfTab();
+          setTimeout(focusPdfTab, 120);
+          setTimeout(focusPdfTab, 450);
+          setTimeout(focusPdfTab, 900);
+          setTimeout(focusPdfTab, 1600);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def _markdown_light_to_html(text: str) -> str:
+    """Minimal inline markdown (** / *) on HTML-escaped text."""
+    if not text:
+        return ""
+    escaped = html.escape(text)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped, flags=re.DOTALL)
+    escaped = re.sub(
+        r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
+        r"<em>\1</em>",
+        escaped,
+        flags=re.DOTALL,
+    )
+    parts = escaped.split("\n\n")
+    blocks: list[str] = []
+    for part in parts:
+        if not part.strip():
+            continue
+        blocks.append(f"<p>{part.replace(chr(10), '<br>')}</p>")
+    return "".join(blocks) if blocks else ""
+
+
+def _render_analyzing_status() -> None:
+    """Styled in-bubble status while the agent runs (not plain st.spinner text)."""
+    st.markdown(
+        """
+        <div class="finsight-analyzing-status" role="status" aria-live="polite">
+            <span class="finsight-spin" aria-hidden="true">⟳</span>
+            <span>Analyzing with retrieval + calculator guardrails…</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _run_agent_turn(question: str) -> tuple[str, str]:
+    """Invoke LangGraph for one user question; return (answer, trace)."""
+    try:
+        graph = _get_graph()
+        result = graph.invoke(
+            {
+                "messages": [HumanMessage(content=question)],
+                "iteration_count": 0,
+            },
+            config={"recursion_limit": 12},
+        )
+        messages: list[BaseMessage] = list(result.get("messages", []))
+        answer = _final_answer(messages)
+        trace = _format_tool_trace(messages)
+    except Exception as exc:
+        answer = f"Agent error: {exc}"
+        trace = "_Agent failed before producing a tool trace._"
+    answer = _with_indexing_disclaimer(answer, is_indexing())
+    return answer, trace
+
+
+def _render_answer(answer: str, *, msg_key: str) -> None:
+    """Render answer with inline citation buttons (Streamlit rerun — no browser reload)."""
     tip = (
         "Try again refining query wordings for better scraping-analysis "
         "of the uploaded index document."
     )
-    body = answer
+    body = answer or ""
     if tip in body:
         body = body.replace(tip, f"**{tip}**")
-    st.markdown(body)
+    body = _normalize_citation_placement(body)
+    st.markdown('<div class="finsight-answer-body">', unsafe_allow_html=True)
+    for para_idx, para in enumerate(body.split("\n\n")):
+        if para.strip():
+            _render_answer_paragraph(para, msg_key=msg_key, para_idx=para_idx)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _get_graph():
@@ -815,9 +1238,9 @@ def _documents_panel() -> None:
     # Live capacity check (ready + actively indexing only; cancelling frees slots).
     if slots <= 0:
         st.warning(
-            f"Upload hidden* **{MAX_INDEXED_PDFS}** PDF slot(s) in use "
+            f"There are **{MAX_INDEXED_PDFS}** PDF slot(s) in use "
             f"({len(indexed)} ready · {len(inflight)} indexing). "
-            "Remove or clear to upload again."
+            "Remove/Clear to upload again."
         )
     else:
         uploaded = st.file_uploader(
@@ -846,10 +1269,15 @@ def _documents_panel() -> None:
         with c1:
             st.markdown(f"`{short}`", help=name)
         with c2:
+            prog = ""
+            emb = job.get("embedded")
+            tot = job.get("total_chunks")
+            if emb is not None and tot:
+                prog = f" · {emb}/{tot} chunks"
             st.markdown(
                 f'<div style="text-align:center;padding:0.2rem 0;">'
                 f'<span class="finsight-spin">⟳</span> '
-                f'<span style="font-size:0.8rem;color:#9aabc4;">{status}</span>'
+                f'<span style="font-size:0.8rem;color:#9aabc4;">{status}{prog}</span>'
                 f"</div>",
                 unsafe_allow_html=True,
             )
@@ -894,9 +1322,7 @@ def _documents_panel() -> None:
                 st.rerun()
 
 
-def _init_dual_sidebar_state() -> None:
-    if "right_sidebar_open" not in st.session_state:
-        st.session_state.right_sidebar_open = False
+def _init_pdf_view_state() -> None:
     if "pdf_view_doc" not in st.session_state:
         st.session_state.pdf_view_doc = ""
     if "pdf_view_page" not in st.session_state:
@@ -905,65 +1331,175 @@ def _init_dual_sidebar_state() -> None:
         st.session_state.pdf_view_highlight = ""
 
 
-def _render_right_sidebar_rail() -> None:
-    """Fixed right-edge chevron (styled via CSS on row containing #finsight-right-rail-marker)."""
-    _rail_col, = st.columns([1])
-    with _rail_col:
-        st.markdown(
-            '<div id="finsight-right-rail-marker" aria-hidden="true"></div>',
-            unsafe_allow_html=True,
-        )
-        if st.button(
-            "‹",
-            key="finsight_open_right_sidebar",
-            help="Open PDF viewer",
-        ):
-            st.session_state.right_sidebar_open = True
-            st.session_state.collapse_left_for_right = True
-            st.rerun()
-
-
-def _render_right_sidebar_panel(indexed: list[str]) -> None:
-    """PDF viewer column content (placed in right st.columns sibling)."""
-    if not indexed:
+def _render_pdf_page_preview(*, png: bytes | None, err: str | None) -> None:
+    """
+    PDF page via st.image (Streamlit expand/fullscreen) inside a bounded scroll host.
+    A zero-height parent script sets max-height on the image element container.
+    """
+    if err:
+        st.warning(err)
+        return
+    if not png:
+        st.info("Select a document to preview pages.")
         return
 
     st.markdown(
-        '<div id="finsight-right-sidebar-marker" aria-hidden="true"></div>',
+        '<div id="finsight-pdf-page-preview" aria-hidden="true"></div>',
         unsafe_allow_html=True,
     )
-    _hdr, _close = st.columns([5, 1])
-    with _hdr:
+    st.image(io.BytesIO(png), use_container_width=True)
+    components.html(
+        """
+        <script>
+        (function () {
+          const doc = window.parent.document;
+
+          function pdfSidebarRoot() {
+            const marker = doc.getElementById("finsight-pdf-sidebar-panel");
+            if (!marker) return null;
+            return marker.closest('[data-testid="stSidebar"]');
+          }
+
+          function scrollHost() {
+            const root = pdfSidebarRoot();
+            if (!root) return null;
+            const img = root.querySelector('[data-testid="stImage"]');
+            if (!img) return null;
+            return img.closest('[data-testid="stElementContainer"]');
+          }
+
+          function applyScrollBounds() {
+            const root = pdfSidebarRoot();
+            const host = scrollHost();
+            if (!root || !host) return;
+            host.classList.add("finsight-pdf-page-scroll-host");
+            const rootRect = root.getBoundingClientRect();
+            const hostRect = host.getBoundingClientRect();
+            const maxH = Math.max(120, Math.floor(rootRect.bottom - hostRect.top - 8));
+            host.style.setProperty("max-height", maxH + "px", "important");
+            host.style.setProperty("overflow-y", "auto", "important");
+            host.style.setProperty("overflow-x", "hidden", "important");
+            host.style.setProperty("min-height", "0", "important");
+          }
+
+          applyScrollBounds();
+          setTimeout(applyScrollBounds, 80);
+          setTimeout(applyScrollBounds, 400);
+          if (window.parent && !window.parent.__finsightPdfScrollBound) {
+            window.parent.__finsightPdfScrollBound = true;
+            window.parent.addEventListener("resize", applyScrollBounds);
+          }
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def _render_pdf_page_nav(*, page: int, page_count: int) -> None:
+    """Single-row controls: Prev | page | − | + | of N | Next."""
+    st.markdown(
+        '<div id="finsight-pdf-nav-marker" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+    max_page = max(page_count, 1)
+    page = min(max(1, page), max_page)
+    st.session_state.pdf_view_page = page
+    st.session_state["finsight_pdf_page_input"] = page
+
+    nav_prev, nav_page, nav_minus, nav_plus, nav_total, nav_next = st.columns(
+        [0.95, 0.55, 0.35, 0.35, 0.75, 0.95],
+        gap="small",
+        vertical_alignment="center",
+    )
+    with nav_prev:
+        if st.button(
+            "Prev",
+            key="finsight_pdf_prev",
+            disabled=page <= 1,
+            type="secondary",
+        ):
+            st.session_state.pdf_view_page = max(1, page - 1)
+            st.rerun()
+    with nav_page:
+        new_page = st.number_input(
+            "Page",
+            min_value=1,
+            max_value=max_page,
+            step=1,
+            key="finsight_pdf_page_input",
+            label_visibility="collapsed",
+        )
+        if int(new_page) != st.session_state.pdf_view_page:
+            st.session_state.pdf_view_page = int(new_page)
+            st.rerun()
+    with nav_minus:
+        if st.button(
+            "−",
+            key="finsight_pdf_minus",
+            disabled=page <= 1,
+            help="Previous page",
+            type="secondary",
+        ):
+            st.session_state.pdf_view_page = max(1, page - 1)
+            st.rerun()
+    with nav_plus:
+        at_end = page_count > 0 and page >= page_count
+        if st.button(
+            "+",
+            key="finsight_pdf_plus",
+            disabled=at_end,
+            help="Next page",
+            type="secondary",
+        ):
+            st.session_state.pdf_view_page = min(page_count or page + 1, page + 1)
+            st.rerun()
+    with nav_total:
+        total_label = str(page_count) if page_count else "?"
         st.markdown(
-            '<div class="finsight-right-sidebar-header"><span>PDF Viewer</span></div>',
+            f'<p class="finsight-pdf-nav-of">of {total_label}</p>',
             unsafe_allow_html=True,
         )
-    with _close:
+    with nav_next:
         if st.button(
-            "›",
-            key="finsight_close_right_sidebar",
-            help="Close PDF viewer",
+            "Next",
+            key="finsight_pdf_next",
+            disabled=page_count > 0 and page >= page_count,
+            type="secondary",
         ):
-            st.session_state.right_sidebar_open = False
+            st.session_state.pdf_view_page = page + 1
             st.rerun()
 
-    names = sorted(indexed)
-    default_doc = st.session_state.pdf_view_doc
-    if default_doc not in names:
-        default_doc = names[0]
-        st.session_state.pdf_view_doc = default_doc
 
-    doc_idx = names.index(st.session_state.pdf_view_doc)
+def _render_pdf_viewer_panel(indexed: list[str]) -> None:
+    """PDF viewer (Documents sidebar → PDF viewer tab)."""
+    st.markdown(
+        '<div id="finsight-pdf-sidebar-panel" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+    if not indexed:
+        st.info("Upload and index PDFs in the Documents tab.")
+        return
+
+    names = sorted(indexed)
+    if st.session_state.pdf_view_doc not in names:
+        st.session_state.pdf_view_doc = names[0]
+    if st.session_state.get("finsight_pdf_select") not in names:
+        st.session_state["finsight_pdf_select"] = st.session_state.pdf_view_doc
+
     picked = st.selectbox(
         "Document",
         names,
-        index=doc_idx,
         key="finsight_pdf_select",
         label_visibility="collapsed",
     )
     if picked != st.session_state.pdf_view_doc:
         st.session_state.pdf_view_doc = picked
         st.session_state.pdf_view_page = 1
+        st.session_state["finsight_pdf_page_input"] = 1
+    else:
+        st.session_state.pdf_view_doc = picked
 
     page = int(st.session_state.pdf_view_page or 1)
     highlight = (st.session_state.pdf_view_highlight or "").strip() or None
@@ -982,76 +1518,42 @@ def _render_right_sidebar_panel(indexed: list[str]) -> None:
             highlight_query=highlight,
         )
 
-    nav1, nav2, nav3 = st.columns([1, 2, 1])
-    with nav1:
-        if st.button("Prev", key="finsight_pdf_prev", disabled=page <= 1):
-            st.session_state.pdf_view_page = max(1, page - 1)
-            st.rerun()
-    with nav2:
-        new_page = st.number_input(
-            "Page",
-            min_value=1,
-            max_value=max(page_count, 1),
-            value=page,
-            step=1,
-            key="finsight_pdf_page_input",
-            label_visibility="collapsed",
-        )
-        if int(new_page) != page:
-            st.session_state.pdf_view_page = int(new_page)
-            st.rerun()
-        st.caption(f"of {page_count or '?'}" if page_count else "Page")
-    with nav3:
-        if st.button(
-            "Next",
-            key="finsight_pdf_next",
-            disabled=page_count > 0 and page >= page_count,
-        ):
-            st.session_state.pdf_view_page = page + 1
-            st.rerun()
+    _render_pdf_page_nav(page=page, page_count=page_count or 0)
 
-    if err:
-        st.warning(err)
-    elif png:
-        st.image(png, use_container_width=True)
-    else:
-        st.info("Select a document to preview pages.")
+    _render_pdf_page_preview(png=png, err=err)
 
 
-def main() -> None:
-    ensure_directories()
-    if not MANIFEST_PATH.exists():
-        sync_manifest_from_chroma()
+def _render_data_info_panel() -> None:
+    """Sidebar tab: persisted data paths."""
+    st.markdown(f"**Data folder:** `{DATA_DIR}`")
+    st.markdown("Chunks persist in `./chroma_db`.")
 
-    _init_dual_sidebar_state()
-    sync_right_sidebar_query()
 
-    indexed = get_indexed_sources()
-    has_indexed = bool(indexed)
-    if not has_indexed:
-        st.session_state.right_sidebar_open = False
+def _render_sidebar(indexed: list[str]) -> None:
+    """Left sidebar: Documents, PDF viewer, and data info tabs."""
+    tab_docs, tab_pdf, tab_data = st.tabs(["Documents", "PDF viewer", "Data"])
+    with tab_docs:
+        _documents_panel()
+    with tab_pdf:
+        _render_pdf_viewer_panel(indexed)
+    with tab_data:
+        _render_data_info_panel()
 
-    right_open = bool(st.session_state.get("right_sidebar_open")) and has_indexed
-    collapse_left = bool(st.session_state.pop("collapse_left_for_right", False))
-    inject_dual_sidebar_sync(right_open=right_open, collapse_left=collapse_left)
+    if st.session_state.pop("finsight_focus_pdf_tab", False):
+        _inject_sidebar_pdf_tab_focus()
 
-    if "upload_widget_key" not in st.session_state:
-        st.session_state.upload_widget_key = 0
 
-    if right_open and has_indexed:
-        chat_col, pdf_col = st.columns([1, 1], gap="small")
-    else:
-        chat_col = st.container()
-        pdf_col = None
+def _clear_chat_history() -> None:
+    st.session_state.chat_history = []
+    st.session_state.agent_busy = False
+    st.session_state.pop("agent_display_pass", None)
 
-    with chat_col:
-        st.markdown(
-            '<div id="finsight-chat-main-column" aria-hidden="true"></div>',
-            unsafe_allow_html=True,
-        )
-        if has_indexed and not right_open:
-            _render_right_sidebar_rail()
 
+def _render_hero_header() -> None:
+    """Title block with Clear chat on the right."""
+    st.markdown('<div class="finsight-hero-header-row">', unsafe_allow_html=True)
+    hero_text, hero_actions = st.columns([1, 0.22], vertical_alignment="top")
+    with hero_text:
         st.markdown(
             """
             <div class="finsight-hero">
@@ -1062,65 +1564,93 @@ def main() -> None:
             """,
             unsafe_allow_html=True,
         )
+    with hero_actions:
+        if st.button("Clear chat", key="finsight_clear_chat", type="secondary"):
+            _clear_chat_history()
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history: list[dict[str, Any]] = []
 
-        for turn in st.session_state.chat_history:
+def _render_chat_main() -> None:
+    """Center main area: hero, chat thread, input (no nested PDF column)."""
+    st.markdown(
+        '<div id="finsight-chat-main-column" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history: list[dict[str, Any]] = []
+    if "agent_busy" not in st.session_state:
+        st.session_state.agent_busy = False
+
+    scroll = st.container()
+    with scroll:
+        st.markdown(
+            '<div id="finsight-chat-scroll" aria-hidden="true"></div>',
+            unsafe_allow_html=True,
+        )
+        _render_hero_header()
+
+        for turn_idx, turn in enumerate(st.session_state.chat_history):
             with st.chat_message("user", avatar=USER_AVATAR):
                 st.markdown(turn["question"])
             with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-                _render_answer(turn["answer"])
-                with st.expander("Thought Process & Tool Calls", expanded=False):
-                    st.markdown(turn["trace"])
-
-    if pdf_col is not None:
-        with pdf_col:
-            _render_right_sidebar_panel(indexed)
+                if turn.get("answer") is None:
+                    _render_analyzing_status()
+                else:
+                    _render_answer(turn["answer"], msg_key=f"t{turn_idx}")
+                    with st.expander("Thought Process & Tool Calls", expanded=False):
+                        st.markdown(turn["trace"])
 
     prompt = st.chat_input("Ask a financial question grounded in your PDFs…")
     if prompt:
         if not _ensure_api_key():
             st.stop()
-
-        indexing_active = is_indexing()
-
-        with st.spinner("Analyzing with retrieval + calculator guardrails…"):
-            try:
-                graph = _get_graph()
-                result = graph.invoke(
-                    {
-                        "messages": [HumanMessage(content=prompt)],
-                        "iteration_count": 0,
-                    },
-                    config={"recursion_limit": 12},
-                )
-                messages: list[BaseMessage] = list(result.get("messages", []))
-                answer = _final_answer(messages)
-                trace = _format_tool_trace(messages)
-            except Exception as exc:
-                answer = f"Agent error: {exc}"
-                trace = "_Agent failed before producing a tool trace._"
-
-        answer = _with_indexing_disclaimer(answer, is_indexing() or indexing_active)
         st.session_state.chat_history.append(
-            {"question": prompt, "answer": answer, "trace": trace}
+            {"question": prompt, "answer": None, "trace": ""}
         )
+        st.session_state.agent_busy = True
         st.rerun()
 
-    with st.sidebar:
-        st.header("Documents")
-        _documents_panel()
-
-        st.divider()
-        st.markdown(
-            f"**Data folder:** `{DATA_DIR}`  \n"
-            "Chunks persist in `./chroma_db`."
-        )
-        if st.button("Clear chat", use_container_width=True):
-            st.session_state.chat_history = []
+    if (
+        st.session_state.agent_busy
+        and st.session_state.chat_history
+        and st.session_state.chat_history[-1].get("answer") is None
+    ):
+        if not st.session_state.get("agent_display_pass"):
+            st.session_state.agent_display_pass = True
             st.rerun()
 
+        question = st.session_state.chat_history[-1]["question"]
+        answer, trace = _run_agent_turn(question)
+        st.session_state.chat_history[-1] = {
+            "question": question,
+            "answer": answer,
+            "trace": trace,
+        }
+        st.session_state.agent_busy = False
+        st.session_state.pop("agent_display_pass", None)
+        st.rerun()
+
+
+def main() -> None:
+    ensure_directories()
+    recover_stale_index_jobs()
+    if not MANIFEST_PATH.exists():
+        sync_manifest_from_chroma()
+
+    _init_pdf_view_state()
+
+    indexed = get_indexed_sources()
+    _consume_pending_citation(indexed)
+
+    if "upload_widget_key" not in st.session_state:
+        st.session_state.upload_widget_key = 0
+
+    with st.sidebar:
+        _render_sidebar(indexed)
+
+    _render_chat_main()
     _inject_main_block_padding_fix()
 
 
