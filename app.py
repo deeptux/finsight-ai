@@ -1485,6 +1485,36 @@ def _documents_panel() -> None:
                 start_clear_all_indexed_pdfs()
                 st.rerun()
 
+    _maybe_rerun_sidebar_index_sync(indexed, inflight, removing)
+
+
+def _sidebar_index_sync_key(
+    indexed: list[str],
+    inflight: list[str],
+    removing: list[str],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Stable snapshot for Documents ↔ PDF viewer alignment."""
+    return (tuple(sorted(indexed)), tuple(sorted(inflight)), tuple(sorted(removing)))
+
+
+def _maybe_rerun_sidebar_index_sync(
+    indexed: list[str],
+    inflight: list[str],
+    removing: list[str],
+) -> None:
+    """
+    Documents tab polls every 2s; PDF viewer uses main()'s indexed list.
+    When manifest / jobs change, trigger one full rerun so the PDF tab updates.
+    """
+    current = _sidebar_index_sync_key(indexed, inflight, removing)
+    prev = st.session_state.get("_finsight_sidebar_index_sync")
+    if prev is None:
+        st.session_state._finsight_sidebar_index_sync = current
+        return
+    if prev != current:
+        st.session_state._finsight_sidebar_index_sync = current
+        st.rerun()
+
 
 def _init_pdf_view_state() -> None:
     if "pdf_view_doc" not in st.session_state:
