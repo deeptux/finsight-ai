@@ -1820,7 +1820,7 @@ def _render_hero_header() -> None:
             """
             <div class="finsight-hero">
                 <h1>FinSight-Ai</h1>
-                <p class="subtitle">Financial PDF Agentic RAG (powered by Gemini 2.5 flash-lite)</p>
+                <p class="subtitle">Financial PDF Agentic RAG (powered by Gemini 3.5 flash-lite)</p>
                 <p class="tagline">[ grounded answers, strict citations ]</p>
             </div>
             """,

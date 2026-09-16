@@ -7,7 +7,7 @@ Financial PDF Agentic RAG in Python. Index up to four 10-K style PDFs locally, a
 - PDF ingestion with table-aware extraction and local Chroma persistence
 - LangGraph agent with document search and financial calculator tools
 - Streamlit UI with background multi-PDF indexing (4-file cap) and chat
-- Free-tier Gemini embeddings and `gemini-2.5-flash-lite`
+- Free-tier Gemini embeddings and `gemini-3.5-flash-lite`
 
 ## Setup
 

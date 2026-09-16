@@ -13,9 +13,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 CHROMA_DIR = PROJECT_ROOT / "chroma_db"
 
-# text-embedding-004 / gemini-2.5-flash blocked for many new free-tier keys.
+# text-embedding-004 / gemini-3.5-flash blocked for many new free-tier keys.
 EMBEDDING_MODEL = "models/gemini-embedding-001"
-LLM_MODEL = "gemini-2.5-flash-lite"
+LLM_MODEL = "gemini-3.5-flash-lite"
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150

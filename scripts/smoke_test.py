@@ -21,7 +21,7 @@ def test_config() -> None:
 
     assert CHUNK_SIZE == 800 and CHUNK_OVERLAP == 150
     assert MAX_AGENT_ITERATIONS == 4
-    assert LLM_MODEL == "gemini-2.5-flash-lite"
+    assert LLM_MODEL == "gemini-3.5-flash-lite"
     assert EMBEDDING_MODEL == "models/gemini-embedding-001"
     assert CHROMA_DIR.name == "chroma_db"
     print("config OK")
