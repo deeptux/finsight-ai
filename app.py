@@ -13,7 +13,7 @@ import streamlit.components.v1 as components
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from src.agent import build_graph
-from src.config import DATA_DIR, MAX_INDEXED_PDFS, ensure_directories, get_gemini_api_key
+from src.config import DATA_DIR, MAX_INDEXED_PDFS, APP_BUILD, ensure_directories, get_gemini_api_key
 from src.index_jobs import (
     INDEXING_DISCLAIMER,
     MANIFEST_PATH,
@@ -944,6 +944,8 @@ def _final_answer(messages: list[BaseMessage]) -> str:
 def _with_indexing_disclaimer(answer: str, indexing_active: bool) -> str:
     """Append live-index disclaimer when PDF ingest is still running."""
     if not indexing_active:
+        if INDEXING_DISCLAIMER in (answer or ""):
+            return answer.replace(INDEXING_DISCLAIMER, "").strip()
         return answer
     if INDEXING_DISCLAIMER in answer:
         return answer
@@ -969,6 +971,22 @@ _CITATION_PARSE_RE = re.compile(
     r"\[Doc:\s*(?P<doc>.+?)\s*,\s*Page:\s*(?P<pages>[^\]]+)\]",
     re.IGNORECASE,
 )
+
+
+def _is_live_citation_tag(part: str) -> bool:
+    """True only for real [Doc: file.pdf, Page: N] tags, not prompt placeholders."""
+    if not part or not _CITATION_TAG_RE.fullmatch(part):
+        return False
+    if "<" in part or ">" in part:
+        return False
+    parsed = _parse_citation_tag(part)
+    if not parsed:
+        return False
+    doc, _page = parsed
+    lowered = doc.lower()
+    if "filename" in lowered or lowered.strip() in {"doc", "document"}:
+        return False
+    return True
 
 
 def _parse_citation_tag(citation: str) -> tuple[str, int] | None:
@@ -1137,19 +1155,19 @@ def _render_answer_paragraph(
 ) -> bool:
     """Returns True after the first citation row has been rendered."""
     parts = re.split(r"(\[Doc:[^\]]+\])", para, flags=re.IGNORECASE)
-    has_cite = any(_CITATION_TAG_RE.fullmatch(p or "") for p in parts)
+    has_cite = any(_is_live_citation_tag(p or "") for p in parts)
     if not has_cite:
         st.markdown(_markdown_light_to_html(para), unsafe_allow_html=True)
         return first_cite_in_answer
 
     seg_idx = 0
     pending_text = ""
-    cite_count = sum(1 for p in parts if p and _CITATION_TAG_RE.fullmatch(p))
+    cite_count = sum(1 for p in parts if p and _is_live_citation_tag(p))
     cite_seen = 0
     for part in parts:
         if not part:
             continue
-        if _CITATION_TAG_RE.fullmatch(part):
+        if _is_live_citation_tag(part):
             cite_seen += 1
             _render_cite_bullet_row(
                 pending_text,
@@ -1799,6 +1817,8 @@ def _render_pdf_viewer_panel(indexed: list[str]) -> None:
 
 def _render_data_info_panel() -> None:
     """Sidebar tab: persisted data paths."""
+    st.markdown(f"**App build:** `{APP_BUILD}`")
+    st.caption("If this build id does not match after a git push, reboot the Streamlit Cloud app.")
     st.markdown(f"**Data folder:** `{DATA_DIR}`")
     st.markdown("Chunks persist in `./chroma_db`.")
 
@@ -1829,11 +1849,11 @@ def _render_hero_header() -> None:
     hero_text, hero_actions = st.columns([1, 0.22], vertical_alignment="top")
     with hero_text:
         st.markdown(
-            """
+            f"""
             <div class="finsight-hero">
                 <h1>FinSight-Ai</h1>
                 <p class="subtitle">Financial PDF Agentic RAG (powered by Gemini 3.5 flash-lite)</p>
-                <p class="tagline">[ grounded answers, strict citations ]</p>
+                <p class="tagline">[ grounded answers, strict citations · {APP_BUILD} ]</p>
             </div>
             """,
             unsafe_allow_html=True,

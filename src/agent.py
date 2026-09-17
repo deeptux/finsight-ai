@@ -20,6 +20,28 @@ class AgentState(TypedDict):
     iteration_count: int
 
 
+def _active_system_prompt() -> str:
+    """System prompt plus which PDFs are actually indexed on this host."""
+    try:
+        from src.index_jobs import get_indexed_sources
+
+        names = get_indexed_sources()
+    except Exception:
+        names = []
+    if names:
+        roster = ", ".join(names)
+        extra = (
+            f"Runtime note: indexed PDFs on this server: {roster}. "
+            "You may confirm these filenames without a tool call."
+        )
+    else:
+        extra = (
+            "Runtime note: no PDFs are indexed on this server yet. "
+            "If asked about document contents, say the user must upload/index a PDF first."
+        )
+    return f"{SYSTEM_PROMPT}\n\n{extra}"
+
+
 def _build_llm() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
         model=LLM_MODEL,
@@ -45,7 +67,7 @@ def agent_node(state: AgentState) -> dict:
     llm = _build_llm().bind_tools(TOOLS)
     messages = list(state["messages"])
     if not messages or not isinstance(messages[0], SystemMessage):
-        messages = [SystemMessage(content=SYSTEM_PROMPT), *messages]
+        messages = [SystemMessage(content=_active_system_prompt()), *messages]
 
     response = llm.invoke(messages)
 
