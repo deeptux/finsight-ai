@@ -25,6 +25,8 @@ def _build_llm() -> ChatGoogleGenerativeAI:
         model=LLM_MODEL,
         google_api_key=get_gemini_api_key(),
         temperature=0,
+        timeout=45,
+        max_retries=1,
     )
 
 

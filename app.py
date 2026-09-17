@@ -6,6 +6,7 @@ import html
 import io
 import re
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -1260,22 +1261,33 @@ def _render_analyzing_status() -> None:
 def _run_agent_turn(question: str) -> tuple[str, str]:
     """Invoke LangGraph for one user question; return (answer, trace)."""
     try:
-        graph = _get_graph()
-        result = graph.invoke(
-            {
-                "messages": [HumanMessage(content=question)],
-                "iteration_count": 0,
-            },
-            config={"recursion_limit": 12},
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_invoke_agent_graph, question)
+            answer, trace = future.result(timeout=90)
+    except FuturesTimeoutError:
+        answer = (
+            "Retrieval timed out after 90 seconds. "
+            "Try a shorter question (e.g. 'What is Optum Rx?')."
         )
-        messages: list[BaseMessage] = list(result.get("messages", []))
-        answer = _final_answer(messages)
-        trace = _format_tool_trace(messages)
+        trace = "_Agent exceeded the 90s retrieval/LLM budget._"
     except Exception as exc:
         answer = f"Agent error: {exc}"
         trace = "_Agent failed before producing a tool trace._"
     answer = _with_indexing_disclaimer(answer, is_indexing())
     return answer, trace
+
+
+def _invoke_agent_graph(question: str) -> tuple[str, str]:
+    graph = _get_graph()
+    result = graph.invoke(
+        {
+            "messages": [HumanMessage(content=question)],
+            "iteration_count": 0,
+        },
+        config={"recursion_limit": 12},
+    )
+    messages: list[BaseMessage] = list(result.get("messages", []))
+    return _final_answer(messages), _format_tool_trace(messages)
 
 
 def _render_answer(answer: str, *, msg_key: str) -> None:

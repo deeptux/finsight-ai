@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 from langchain_core.tools import tool
 
 from src.config import RETRIEVER_K
-from src.ingestion import get_vectorstore
+from src.ingestion import iter_stored_chunks, query_similar_documents
 
 
 def sanitize_financial_expression(expression: str) -> str:
@@ -203,25 +203,22 @@ def _substring_fallback(query: str, limit: int = 6) -> list[Document]:
     if not needles:
         return []
 
-    store = get_vectorstore()
-    raw = store.get(include=["documents", "metadatas"])
-    documents = raw.get("documents") or []
-    metadatas = raw.get("metadatas") or []
-
     scored: list[tuple[int, Document]] = []
     seen: set[str] = set()
-    for text, meta in zip(documents, metadatas):
+    for doc in iter_stored_chunks():
+        text = doc.page_content or ""
         if not text:
             continue
         hay = text.lower()
-        score = sum(1 for n in needles if n in hay)
+        score = sum(1 for n in needles if len(n) >= 12 and n in hay)
         if score <= 0:
             continue
-        key = f"{(meta or {}).get('source')}|{(meta or {}).get('page')}|{text[:120]}"
+        meta = doc.metadata or {}
+        key = f"{meta.get('source')}|{meta.get('page')}|{text[:120]}"
         if key in seen:
             continue
         seen.add(key)
-        scored.append((score, Document(page_content=text, metadata=meta or {})))
+        scored.append((score, doc))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [doc for _, doc in scored[:limit]]
@@ -230,10 +227,13 @@ def _substring_fallback(query: str, limit: int = 6) -> list[Document]:
 def _format_docs(docs: list[Document]) -> str:
     parts = []
     for i, doc in enumerate(docs, start=1):
-        source = doc.metadata.get("source", "unknown")
-        page = doc.metadata.get("page", "?")
+        text = doc.page_content or ""
+        if not text.strip():
+            continue
+        source = (doc.metadata or {}).get("source", "unknown")
+        page = (doc.metadata or {}).get("page", "?")
         parts.append(
-            f"--- Chunk {i} (source={source}, page={page}) ---\n{doc.page_content}"
+            f"--- Chunk {i} (source={source}, page={page}) ---\n{text}"
         )
     return "\n\n".join(parts)
 
@@ -246,38 +246,39 @@ def search_financial_docs(query: str) -> str:
     DOCUMENT/PAGE headers for citations.
     """
     try:
-        vectorstore = get_vectorstore()
         seen: set[str] = set()
         docs: list[Document] = []
 
-        for variant in _search_query_variants(query):
-            for doc in vectorstore.similarity_search(variant, k=RETRIEVER_K):
-                key = (
-                    f"{doc.metadata.get('source')}|{doc.metadata.get('page')}|"
-                    f"{doc.page_content[:160]}"
-                )
-                if key in seen:
-                    continue
-                seen.add(key)
-                docs.append(doc)
-            if len(docs) >= RETRIEVER_K * 2:
-                break
+        # Phrase scan first (no Gemini embed). Quoted 10-K sentences match instantly.
+        for doc in _substring_fallback(query, limit=6):
+            text = doc.page_content or ""
+            if not text:
+                continue
+            key = (
+                f"{(doc.metadata or {}).get('source')}|"
+                f"{(doc.metadata or {}).get('page')}|{text[:160]}"
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            docs.append(doc)
 
-        # Always try phrase/substring fallback for paraphrases & near-quotes.
-        # Vector hits can be irrelevant even when docs is non-empty.
-        needles = _significant_needles(query)
-        hay_joined = "\n".join(d.page_content.lower() for d in docs)
-        matched_needles = [n for n in needles if n in hay_joined]
-        if not matched_needles:
-            for doc in _substring_fallback(query, limit=6):
-                key = (
-                    f"{doc.metadata.get('source')}|{doc.metadata.get('page')}|"
-                    f"{doc.page_content[:160]}"
-                )
-                if key in seen:
-                    continue
-                seen.add(key)
-                docs.insert(0, doc)
+        if len(docs) < RETRIEVER_K:
+            for variant in _search_query_variants(query)[:2]:
+                for doc in query_similar_documents(variant, RETRIEVER_K):
+                    text = doc.page_content or ""
+                    if not text:
+                        continue
+                    key = (
+                        f"{(doc.metadata or {}).get('source')}|"
+                        f"{(doc.metadata or {}).get('page')}|{text[:160]}"
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    docs.append(doc)
+                if len(docs) >= RETRIEVER_K * 2:
+                    break
 
         docs = docs[: max(RETRIEVER_K, 8)]
         if not docs:

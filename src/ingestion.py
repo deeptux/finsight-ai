@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Tuple
 
@@ -135,14 +136,17 @@ def _build_documents(pdf_path: Path, pages: List[Tuple[int, str]]) -> List[Docum
     return documents
 
 
+@lru_cache(maxsize=1)
 def get_embeddings() -> GoogleGenerativeAIEmbeddings:
-    """Google free-tier embedding model."""
+    """Google free-tier embedding model (cached; avoid a new HTTP client per search)."""
     return GoogleGenerativeAIEmbeddings(
         model=EMBEDDING_MODEL,
         google_api_key=get_gemini_api_key(),
+        request_options={"timeout": 25},
     )
 
 
+@lru_cache(maxsize=1)
 def get_vectorstore() -> Chroma:
     """Open or create the persistent Chroma vector store."""
     ensure_directories()
@@ -151,6 +155,113 @@ def get_vectorstore() -> Chroma:
         embedding_function=get_embeddings(),
         persist_directory=str(CHROMA_DIR),
     )
+
+
+def _as_row(value: object) -> list:
+    """Unwrap Chroma query batches: [[a, b]] -> [a, b]."""
+    if value is None:
+        return []
+    if isinstance(value, list) and value and isinstance(value[0], list):
+        return list(value[0])
+    if isinstance(value, list):
+        return list(value)
+    return []
+
+
+def query_similar_documents(query: str, k: int) -> List[Document]:
+    """
+    Similarity search that skips Chroma 1.x ghost neighbors.
+
+    chromadb 1.5 can return ANN ids that are not real records (document/metadata
+    are None). LangChain then raises Document.page_content validation errors.
+    """
+    store = get_vectorstore()
+    collection = store._collection
+    embedding_fn = store._embedding_function
+    if embedding_fn is None:
+        return []
+
+    total = int(collection.count() or 0)
+    if total < 1:
+        return []
+
+    query_embedding = embedding_fn.embed_query(query)
+    n_results = min(total, max(k * 2, 8))
+    raw = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=n_results,
+        include=["documents", "metadatas"],
+    )
+    ids = _as_row((raw or {}).get("ids"))
+    texts = _as_row((raw or {}).get("documents"))
+    metas = _as_row((raw or {}).get("metadatas"))
+    # Pad so zip doesn't drop ids when a column is shorter
+    while len(texts) < len(ids):
+        texts.append(None)
+    while len(metas) < len(ids):
+        metas.append(None)
+
+    missing_ids = [i for i, text in zip(ids, texts) if i and not text]
+    recovered: dict[str, tuple[str, dict]] = {}
+    if missing_ids:
+        try:
+            got = collection.get(ids=missing_ids, include=["documents", "metadatas"])
+            for rid, text, meta in zip(
+                got.get("ids") or [],
+                got.get("documents") or [],
+                got.get("metadatas") or [],
+            ):
+                if rid and text:
+                    recovered[str(rid)] = (text, meta if isinstance(meta, dict) else {})
+        except Exception:
+            recovered = {}
+
+    docs: List[Document] = []
+    seen: set[str] = set()
+    for rid, text, meta in zip(ids, texts, metas):
+        if not text and rid:
+            packed = recovered.get(str(rid))
+            if packed:
+                text, meta = packed
+        if not isinstance(text, str) or not text.strip():
+            continue
+        meta_dict = meta if isinstance(meta, dict) else {}
+        key = f"{meta_dict.get('source')}|{meta_dict.get('page')}|{text[:160]}"
+        if key in seen:
+            continue
+        seen.add(key)
+        docs.append(Document(page_content=text, metadata=meta_dict))
+        if len(docs) >= k:
+            break
+    return docs
+
+
+_CHUNK_CACHE: List[Document] | None = None
+
+
+def invalidate_store_caches() -> None:
+    """Drop cached chunks after ingest/delete so search sees fresh data."""
+    global _CHUNK_CACHE
+    _CHUNK_CACHE = None
+
+
+def iter_stored_chunks() -> List[Document]:
+    """Load all stored chunks (skip empty rows) for substring fallback."""
+    global _CHUNK_CACHE
+    if _CHUNK_CACHE is not None:
+        return _CHUNK_CACHE
+    store = get_vectorstore()
+    collection = store._collection
+    raw = collection.get(include=["documents", "metadatas"])
+    texts = raw.get("documents") or []
+    metas = raw.get("metadatas") or []
+    docs: List[Document] = []
+    for text, meta in zip(texts, metas):
+        if not isinstance(text, str) or not text.strip():
+            continue
+        docs.append(Document(page_content=text, metadata=meta if isinstance(meta, dict) else {}))
+    _CHUNK_CACHE = docs
+    return docs
 
 
 def ingest_pdf(path: str | Path, *, progress_filename: str | None = None) -> int:
@@ -204,6 +315,7 @@ def ingest_pdf(path: str | Path, *, progress_filename: str | None = None) -> int
     except Exception as exc:
         raise ValueError(f"Failed to embed/store documents: {exc}") from exc
 
+    invalidate_store_caches()
     return total
 
 
@@ -218,6 +330,7 @@ def delete_indexed_source(filename: str) -> int:
     ids = existing.get("ids") or []
     if ids:
         collection.delete(ids=ids)
+    invalidate_store_caches()
     return len(ids)
 
 
@@ -229,3 +342,4 @@ def clear_all_indexed_chunks() -> None:
     ids = existing.get("ids") or []
     if ids:
         collection.delete(ids=ids)
+    invalidate_store_caches()
