@@ -754,6 +754,21 @@ DARK_CSS = """
         padding-top: 0.25rem !important;
     }
 
+    /* Session-state sidebar panels (segmented control — magnifying glass can select PDF viewer) */
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-sidebar-nav-marker) {
+        display: none !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-sidebar-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stRadio"] > label,
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-sidebar-nav-marker)
+        + [data-testid="stElementContainer"] [data-testid="stWidgetLabel"] {
+        display: none !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stElementContainer"]:has(#finsight-sidebar-nav-marker)
+        + [data-testid="stElementContainer"] {
+        margin-bottom: 0.35rem !important;
+    }
+
 </style>
 """
 st.markdown(DARK_CSS, unsafe_allow_html=True)
@@ -1066,7 +1081,8 @@ def _apply_citation_navigation(
     st.session_state.pdf_view_doc = resolved
     st.session_state.pdf_view_page = max(1, page)
     st.session_state.pdf_view_highlight = _cite_highlight_query(highlight)
-    st.session_state.finsight_focus_pdf_tab = True
+    st.session_state.finsight_sidebar_panel = "PDF viewer"
+    st.session_state.finsight_expand_sidebar = True
     st.session_state["finsight_pdf_select"] = resolved
     st.session_state["finsight_pdf_page_input"] = max(1, int(page))
 
@@ -1188,16 +1204,28 @@ def _render_answer_paragraph(
     return first_cite_in_answer
 
 
-def _inject_sidebar_pdf_tab_focus() -> None:
-    """After citation navigation: expand sidebar and select PDF viewer tab."""
+def _inject_expand_sidebar() -> None:
+    """After citation navigation: expand the left sidebar if it is collapsed."""
     components.html(
         """
         <script>
         (function () {
-          const topWin = window.top;
-          const doc = topWin.document;
+          function appDoc() {
+            let w = window;
+            for (let i = 0; i < 10; i++) {
+              try {
+                const d = w.document;
+                if (d && d.querySelector('[data-testid="stSidebar"]')) return d;
+              } catch (e) {}
+              if (!w.parent || w.parent === w) break;
+              try { w = w.parent; } catch (e) { break; }
+            }
+            return null;
+          }
 
           function ensureSidebarOpen() {
+            const doc = appDoc();
+            if (!doc) return;
             try {
               const sidebar = doc.querySelector('section[data-testid="stSidebar"]');
               if (!sidebar || sidebar.getAttribute("aria-expanded") === "true") return;
@@ -1208,32 +1236,10 @@ def _inject_sidebar_pdf_tab_focus() -> None:
             } catch (e) {}
           }
 
-          function clickPdfViewerTab() {
-            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-            if (!sidebar) return false;
-            const tabs = sidebar.querySelectorAll(
-              '[data-testid="stTabs"] button, button[data-baseweb="tab"], [role="tab"]'
-            );
-            for (const tab of tabs) {
-              const label = (tab.innerText || tab.textContent || "").trim();
-              if (label === "PDF viewer") {
-                tab.click();
-                return true;
-              }
-            }
-            return false;
-          }
-
-          function focusPdfTab() {
-            ensureSidebarOpen();
-            clickPdfViewerTab();
-          }
-
-          focusPdfTab();
-          setTimeout(focusPdfTab, 120);
-          setTimeout(focusPdfTab, 450);
-          setTimeout(focusPdfTab, 900);
-          setTimeout(focusPdfTab, 1600);
+          ensureSidebarOpen();
+          setTimeout(ensureSidebarOpen, 120);
+          setTimeout(ensureSidebarOpen, 450);
+          setTimeout(ensureSidebarOpen, 900);
         })();
         </script>
         """,
@@ -1824,17 +1830,42 @@ def _render_data_info_panel() -> None:
 
 
 def _render_sidebar(indexed: list[str]) -> None:
-    """Left sidebar: Documents, PDF viewer, and data info tabs."""
-    tab_docs, tab_pdf, tab_data = st.tabs(["Documents", "PDF viewer", "Data"])
-    with tab_docs:
+    """Left sidebar: Documents, PDF viewer, and data info (session-state selected)."""
+    if "finsight_sidebar_panel" not in st.session_state:
+        st.session_state.finsight_sidebar_panel = "Documents"
+
+    st.markdown(
+        '<div id="finsight-sidebar-nav-marker" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+    if hasattr(st, "segmented_control"):
+        panel = st.segmented_control(
+            "Sidebar panel",
+            ["Documents", "PDF viewer", "Data"],
+            key="finsight_sidebar_panel",
+            label_visibility="collapsed",
+            width="stretch",
+            required=True,
+        )
+    else:
+        panel = st.radio(
+            "Sidebar panel",
+            ["Documents", "PDF viewer", "Data"],
+            horizontal=True,
+            key="finsight_sidebar_panel",
+            label_visibility="collapsed",
+        )
+    if panel not in {"Documents", "PDF viewer", "Data"}:
+        panel = "Documents"
+    if panel == "Documents":
         _documents_panel()
-    with tab_pdf:
+    elif panel == "PDF viewer":
         _render_pdf_viewer_panel(indexed)
-    with tab_data:
+    else:
         _render_data_info_panel()
 
-    if st.session_state.pop("finsight_focus_pdf_tab", False):
-        _inject_sidebar_pdf_tab_focus()
+    if st.session_state.pop("finsight_expand_sidebar", False):
+        _inject_expand_sidebar()
 
 
 def _clear_chat_history() -> None:

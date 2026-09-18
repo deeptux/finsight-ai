@@ -30,7 +30,7 @@ GEMINI_RETRY_WAIT_SEC = 45
 # Bumped when embedding model changed so old incompatible vectors are not reused.
 CHROMA_COLLECTION = "finsight_ai_financial_docs_v1"
 EMBED_BATCH_SIZE = 40
-APP_BUILD = "2026-09-17d"
+APP_BUILD = "2026-09-19a"
 
 
 def get_gemini_api_key() -> str:
