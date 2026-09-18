@@ -20,7 +20,7 @@ def test_config() -> None:
     )
 
     assert CHUNK_SIZE == 800 and CHUNK_OVERLAP == 150
-    assert MAX_AGENT_ITERATIONS == 4
+    assert MAX_AGENT_ITERATIONS == 3
     assert LLM_MODEL == "gemini-3.5-flash-lite"
     assert EMBEDDING_MODEL == "models/gemini-embedding-001"
     assert CHROMA_DIR.name == "chroma_db"
@@ -74,7 +74,7 @@ def test_agent_step_limit() -> None:
     from src.agent import agent_node
 
     halt = agent_node(
-        {"messages": [HumanMessage(content="x")], "iteration_count": 4}
+        {"messages": [HumanMessage(content="x")], "iteration_count": 3}
     )
     content = halt["messages"][0].content
     assert "Exceeded maximum retrieval steps" in content, content
@@ -150,6 +150,10 @@ def test_imports() -> None:
     import src.tools  # noqa: F401
 
     from src.agent import build_graph
+    from src.gemini_throttle import _is_rate_limit_error
+
+    assert _is_rate_limit_error(RuntimeError("429 TooManyRequests"))
+    assert not _is_rate_limit_error(RuntimeError("not found"))
 
     # Graph compile should not require API key until invoke
     graph = build_graph()

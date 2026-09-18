@@ -20,13 +20,17 @@ LLM_MODEL = "gemini-3.5-flash-lite"
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
 RETRIEVER_K = 4
-MAX_AGENT_ITERATIONS = 4
+MAX_AGENT_ITERATIONS = 3
 MAX_INDEXED_PDFS = 4
+
+# Free-tier Gemini is RPM-limited (~15/min). Space calls so a tool loop cannot burst.
+GEMINI_MIN_INTERVAL_SEC = 6.5
+GEMINI_RETRY_WAIT_SEC = 45
 
 # Bumped when embedding model changed so old incompatible vectors are not reused.
 CHROMA_COLLECTION = "finsight_ai_financial_docs_v1"
 EMBED_BATCH_SIZE = 40
-APP_BUILD = "2026-09-17c"
+APP_BUILD = "2026-09-17d"
 
 
 def get_gemini_api_key() -> str:

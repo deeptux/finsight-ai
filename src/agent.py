@@ -11,6 +11,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from src.config import LLM_MODEL, MAX_AGENT_ITERATIONS, get_gemini_api_key
+from src.gemini_throttle import gemini_call
 from src.prompts import SYSTEM_PROMPT
 from src.tools import TOOLS
 
@@ -69,7 +70,7 @@ def agent_node(state: AgentState) -> dict:
     if not messages or not isinstance(messages[0], SystemMessage):
         messages = [SystemMessage(content=_active_system_prompt()), *messages]
 
-    response = llm.invoke(messages)
+    response = gemini_call(llm.invoke, messages)
 
     # Gemini flash-lite sometimes returns empty content + no tool_calls after
     # tools already produced useful results (math OR document search).
@@ -90,28 +91,13 @@ def agent_node(state: AgentState) -> dict:
                 break
 
         if empty_content:
-            has_tool_context = any(isinstance(m, ToolMessage) for m in messages)
-            if has_tool_context:
-                # Force a plain text answer from the same tool-augmented history.
-                plain = _build_llm().invoke(
-                    [
-                        *messages,
-                        AIMessage(
-                            content=(
-                                "Using only the tool results above, write the final "
-                                "grounded answer with citations. Do not call tools."
-                            )
-                        ),
-                    ]
-                )
-                plain_content = plain.content
-                plain_empty = (
-                    plain_content is None
-                    or (isinstance(plain_content, str) and not plain_content.strip())
-                    or plain_content == []
-                )
-                if not plain_empty:
-                    response = AIMessage(content=plain_content)
+            # Do not spend another RPM slot. Lift the last search payload instead.
+            for msg in reversed(messages):
+                if isinstance(msg, ToolMessage) and getattr(msg, "name", "") == "search_financial_docs":
+                    raw = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    if raw and not str(raw).startswith("Error"):
+                        response = AIMessage(content=str(raw)[:2500])
+                    break
 
     return {
         "messages": [response],

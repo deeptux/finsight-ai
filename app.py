@@ -1281,13 +1281,13 @@ def _run_agent_turn(question: str) -> tuple[str, str]:
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(_invoke_agent_graph, question)
-            answer, trace = future.result(timeout=90)
+            answer, trace = future.result(timeout=180)
     except FuturesTimeoutError:
         answer = (
-            "Retrieval timed out after 90 seconds. "
+            "Retrieval timed out after 180 seconds. "
             "Try a shorter question (e.g. 'What is Optum Rx?')."
         )
-        trace = "_Agent exceeded the 90s retrieval/LLM budget._"
+        trace = "_Agent exceeded the 180s retrieval/LLM budget._"
     except Exception as exc:
         answer = f"Agent error: {exc}"
         trace = "_Agent failed before producing a tool trace._"

@@ -198,7 +198,9 @@ def get_active_removing() -> list[str]:
 
 
 def is_indexing() -> bool:
-    return bool(get_inflight_indexing())
+    """True only while a PDF is still in-flight and not yet in the ready manifest."""
+    indexed = set(get_indexed_sources())
+    return any(name not in indexed for name in get_inflight_indexing())
 
 
 def is_removing(filename: str | None = None) -> bool:

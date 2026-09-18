@@ -9,9 +9,12 @@ from typing import List, Tuple
 import pdfplumber
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
+
+from src.gemini_throttle import gemini_call
 
 from src.config import (
     CHROMA_COLLECTION,
@@ -136,14 +139,28 @@ def _build_documents(pdf_path: Path, pages: List[Tuple[int, str]]) -> List[Docum
     return documents
 
 
+class ThrottledGeminiEmbeddings(Embeddings):
+    """Serialize embed_query / embed_documents through the shared Gemini throttle."""
+
+    def __init__(self, inner: GoogleGenerativeAIEmbeddings) -> None:
+        self._inner = inner
+
+    def embed_query(self, text: str) -> list[float]:
+        return gemini_call(self._inner.embed_query, text)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return gemini_call(self._inner.embed_documents, texts)
+
+
 @lru_cache(maxsize=1)
-def get_embeddings() -> GoogleGenerativeAIEmbeddings:
+def get_embeddings() -> Embeddings:
     """Google free-tier embedding model (cached; avoid a new HTTP client per search)."""
-    return GoogleGenerativeAIEmbeddings(
+    inner = GoogleGenerativeAIEmbeddings(
         model=EMBEDDING_MODEL,
         google_api_key=get_gemini_api_key(),
         request_options={"timeout": 25},
     )
+    return ThrottledGeminiEmbeddings(inner)
 
 
 @lru_cache(maxsize=1)

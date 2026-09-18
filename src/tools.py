@@ -184,6 +184,17 @@ def _significant_needles(query: str) -> list[str]:
     needles: list[str] = []
     needles.extend(_content_phrases(query))
     stripped = (query or "").strip().strip('"').strip("'")
+    content = _strip_question_framing(stripped)
+    if len(content) >= 8:
+        needles.append(content.lower())
+    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9\-']*", content)
+    for n in (2, 3):
+        if len(words) < n:
+            continue
+        for i in range(0, len(words) - n + 1):
+            phrase = " ".join(words[i : i + n]).lower()
+            if len(phrase) >= 8:
+                needles.append(phrase)
     for acr in re.findall(r"\b[A-Z]{2,10}\b", stripped):
         needles.append(acr.lower())
     for acr in re.findall(r"\b[a-z]{2,10}\b", stripped.lower()):
@@ -210,7 +221,7 @@ def _substring_fallback(query: str, limit: int = 6) -> list[Document]:
         if not text:
             continue
         hay = text.lower()
-        score = sum(1 for n in needles if len(n) >= 12 and n in hay)
+        score = sum(1 for n in needles if len(n) >= 8 and n in hay)
         if score <= 0:
             continue
         meta = doc.metadata or {}
@@ -263,22 +274,21 @@ def search_financial_docs(query: str) -> str:
             seen.add(key)
             docs.append(doc)
 
-        if len(docs) < RETRIEVER_K:
-            for variant in _search_query_variants(query)[:2]:
-                for doc in query_similar_documents(variant, RETRIEVER_K):
-                    text = doc.page_content or ""
-                    if not text:
-                        continue
-                    key = (
-                        f"{(doc.metadata or {}).get('source')}|"
-                        f"{(doc.metadata or {}).get('page')}|{text[:160]}"
-                    )
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    docs.append(doc)
-                if len(docs) >= RETRIEVER_K * 2:
-                    break
+        if not docs:
+            # One embedding query only — extra variants burst Free-tier RPM.
+            variant = (_search_query_variants(query) or [query])[0]
+            for doc in query_similar_documents(variant, RETRIEVER_K):
+                text = doc.page_content or ""
+                if not text:
+                    continue
+                key = (
+                    f"{(doc.metadata or {}).get('source')}|"
+                    f"{(doc.metadata or {}).get('page')}|{text[:160]}"
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                docs.append(doc)
 
         docs = docs[: max(RETRIEVER_K, 8)]
         if not docs:
